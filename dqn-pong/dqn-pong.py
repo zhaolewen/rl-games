@@ -1,15 +1,31 @@
 import numpy as np
 import gym
+import os
+import pickle
 
 
 in_dim = 80 * 80 # input dimension
 hidden_dim = 200 # hidden layer dimension
 gamma = 0.99 # reward discount factor
+batch = 3 # number of episode for a param update
+learn_rate = 1e-4
+decay_rate = 0.99 # decay factor for RMSProp leaky sum of grad^2
+modelFile = "model.pickle"
 
 # model
-model = {}
-model['W1'] = np.random.randn(hidden_dim, in_dim)/ np.sqrt(in_dim) # "Xavier" initialization
-model["W2"] = np.random.randn(hidden_dim) / np.sqrt(hidden_dim)
+if os.path.isfile(modelFile):
+    data = pickle.load(modelFile)
+    model = data["model"]
+    episode_count = data["episode"]
+else:
+    model = {}
+    model['W1'] = np.random.randn(hidden_dim, in_dim)/ np.sqrt(in_dim) # "Xavier" initialization
+    model["W2"] = np.random.randn(hidden_dim) / np.sqrt(hidden_dim)
+    episode_count = 0
+
+# buffer for param update
+grad_buffer = {k: np.zeros_like(v) for k,v in model.items()}
+rmsprop_cache = {k:np.zeros_like(v) for k,v in model.items()}
 
 def discounted_reward(r):
     # calculate discounted reward
@@ -35,6 +51,15 @@ def policy_forward(x):
 
     return p, h # prob of taking action 2: go up, and hidden state
 
+def policy_backward(eph, epdlogp, epx):
+    # backward pass, calculate gradient
+    dW2 = np.dot(eph.T, epdlogp).ravel()
+    dh = np.outer(epdlogp, model["W2"])
+    dh[eph<0] = 0 # backpro prelu
+    dW1 = np.dot(dh.T, epx)
+
+    return {"W1":dW1, "W2":dW2}
+
 def pre_process_image(img):
     # from 210*160*3 uint8 to 6400 (80*80) 1D float vector
     img = img[35:195]
@@ -49,9 +74,10 @@ env = gym.make("Pong-v0")
 observation = env.reset()
 img_prev = None
 reward_sum = 0
-episode_count = 0
 rew_list = []
 dlogp_list = []
+hid_list = []
+obs_list = []
 
 while True:
     env.render()
@@ -63,10 +89,13 @@ while True:
     else:
         img_diff = img_curr - img_prev
     img_prev = img_curr
+    obs_list.append(img_diff)
 
     act_prob, hid = policy_forward(img_diff)
     action = 2 if np.random.uniform() < act_prob else  3
     # 2 up, 3 down
+
+    hid_list.append(hid)
 
     y = 1 if action==2 else 0
     dlogp_list.append(y - act_prob) # grad that encourage taking the action that is taken
@@ -87,7 +116,31 @@ while True:
         stack_dlogp = np.vstack(dlogp_list)
         stack_dlogp *= disc_rew
 
+        stack_hid = np.vstack(hid_list)
+        stack_obs = np.vstack(obs_list)
+        grad = policy_backward(stack_hid, stack_dlogp, stack_obs)
 
-        print("Episode {} done".format(episode_count))
+        # store gradient
+        for k in grad:
+            grad_buffer[k] += grad[k]
+        #apply gradient
+        if episode_count % batch == 0:
+            print("Apply gradient")
+            for k,v in model.items():
+                g = grad_buffer[k]
+                rmsprop_cache[k] = decay_rate * rmsprop_cache[k] + (1-decay_rate) * g ** 2
+                model[k] += learn_rate * g / (np.sqrt(rmsprop_cache[k]) + 1e-5)
+
+                grad_buffer[k] = np.zeros_like(v) # reset buffer
+
+            pickle.dump({"model":model,"episode":episode_count}, open(modelFile, "wb"))
+            print("Session saved")
+
+        print("Episode {} done with reward {}".format(episode_count, reward))
+        # reset
         observation = env.reset()
         img_prev = None
+        rew_list = []
+        dlogp_list = []
+        hid_list = []
+        obs_list = []
