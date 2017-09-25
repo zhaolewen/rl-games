@@ -29,5 +29,5 @@ for ep in range(num_episode):
         s = state
 
         if done:
-            print("Episode {} finished with total reward {}".format(ep, reward))
+            print("Episode {} finished with total reward {}".format(ep, r_sum))
             break
