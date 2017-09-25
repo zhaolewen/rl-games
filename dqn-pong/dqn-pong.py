@@ -3,18 +3,17 @@ import gym
 import os
 import pickle
 
-
 in_dim = 80 * 80 # input dimension
 hidden_dim = 200 # hidden layer dimension
 gamma = 0.99 # reward discount factor
-batch = 3 # number of episode for a param update
-learn_rate = 1e-4
+batch = 10 # number of episode for a param update
+learn_rate = 3e-5
 decay_rate = 0.99 # decay factor for RMSProp leaky sum of grad^2
 modelFile = "model.pickle"
 
 # model
 if os.path.isfile(modelFile):
-    data = pickle.load(modelFile)
+    data = pickle.load(open(modelFile, 'rb'))
     model = data["model"]
     episode_count = data["episode"]
 else:
