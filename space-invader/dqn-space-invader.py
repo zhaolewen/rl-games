@@ -3,16 +3,17 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import random
 import numpy as np
+import scipy.misc
 
 class QNetwork():
-    def __init__(self,h_size,action_size, scope, reuse=None, img_size=160, learning_rate=0.0001):
+    def __init__(self,h_size,action_size, scope, reuse=None, img_size=84, learning_rate=0.0001):
         self.frame_in = tf.placeholder(tf.float32, [None, img_size * img_size * 3], name="frame_in")
         img_in = tf.reshape(self.frame_in, [-1,img_size, img_size, 3])
 
-        conv1 = slim.convolution2d(scope=scope+"_conv1",inputs=img_in, num_outputs=32, kernel_size=[16,16], stride=[8, 8], padding="SAME", biases_initializer=None)
-        conv2 = slim.convolution2d(scope=scope+"_conv2",inputs=conv1, num_outputs=64, kernel_size=[8, 8], stride=[4, 4], padding="SAME", biases_initializer=None)
-        conv3 = slim.convolution2d(scope=scope+"_conv3",inputs=conv2, num_outputs=64, kernel_size=[3, 3], stride=[1, 1], padding="SAME", biases_initializer=None)
-        conv4 = slim.convolution2d(scope=scope+"_conv4",inputs=conv3, num_outputs=h_size, kernel_size=[5, 5], stride=[1, 1], padding="VALID", biases_initializer=None)
+        conv1 = slim.convolution2d(scope=scope+"_conv1",inputs=img_in, num_outputs=32, kernel_size=[8,8], stride=[4, 4], padding="VALID", biases_initializer=None)
+        conv2 = slim.convolution2d(scope=scope+"_conv2",inputs=conv1, num_outputs=64, kernel_size=[4, 4], stride=[2, 2], padding="VALID", biases_initializer=None)
+        conv3 = slim.convolution2d(scope=scope+"_conv3",inputs=conv2, num_outputs=64, kernel_size=[3, 3], stride=[1, 1], padding="VALID", biases_initializer=None)
+        conv4 = slim.convolution2d(scope=scope+"_conv4",inputs=conv3, num_outputs=h_size, kernel_size=[7, 7], stride=[1, 1], padding="VALID", biases_initializer=None)
 
         self.train_len = tf.placeholder(tf.int32,[])
         self.batch_size = tf.placeholder(tf.int32, [])
@@ -26,7 +27,7 @@ class QNetwork():
         rnn = tf.reshape(rnn, [-1, h_size])
 
         with tf.variable_scope("va_split", reuse=reuse):
-            stream_a, stream_v = tf.split(rnn,2,1)
+            stream_a, stream_v = tf.split(rnn,2,axis=1)
             w_a = tf.Variable(tf.random_normal([h_size//2, action_size]))
             w_v = tf.Variable(tf.random_normal([h_size//2, 1]))
 
@@ -47,19 +48,20 @@ class QNetwork():
 
             td_error = tf.square(self.target_q - Q)
 
-            mask_a = tf.zeros([self.batch_size, self.train_len//2])
-            mask_b = tf.ones([self.batch_size, self.train_len//2])
+            #mask_a = tf.zeros([self.batch_size, self.train_len//2])
+            #mask_b = tf.ones([self.batch_size, self.train_len//2])
 
-            mask = tf.concat([mask_a, mask_b], 1)
-            mask = tf.reshape(mask, [-1])
+            #mask = tf.concat([mask_a, mask_b], 1)
+            #mask = tf.reshape(mask, [-1])
 
-            self.loss = tf.reduce_mean(td_error * mask)
+            #self.loss = tf.reduce_mean(td_error * mask)
+            self.loss = tf.reduce_mean(td_error)
 
         self.update = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.loss)
 
 
 class ExperienceBuffer():
-    def __init__(self, buffer_size=1000):
+    def __init__(self, buffer_size=10000):
         self.buffer = []
         self.buffer_size = buffer_size
 
@@ -78,8 +80,9 @@ class ExperienceBuffer():
         samples_traces = np.array(samples_traces)
         return np.reshape(samples_traces, [batch_size * trace_len, 5]) # why 5 ?
 
-def process_frame(f, width):
-    return np.reshape(f[:width,:width,:],[-1])
+def process_frame(f, height=84,width=84):
+    f = scipy.misc.imresize(f, (height, width))
+    return np.reshape(f,[-1])
 
 def discounted_reward(rs, gamma):
     total = 0
@@ -89,10 +92,7 @@ def discounted_reward(rs, gamma):
     return total
 
 if __name__=="__main__":
-    env = gym.make('MsPacman-v0')
-
-    img_width = 160
-    frame_size = img_width * img_width * 3
+    env = gym.make('SpaceInvaders-v0')
 
     batch_size = 4 # num of experience traces
     trace_len = 8
@@ -104,7 +104,7 @@ if __name__=="__main__":
     annel_steps  = 10000 # steps from e_start to e_end
     total_episodes = 1000
 
-    pre_train_steps = 3000 # steps of random action before training begins
+    pre_train_steps = 10000 # steps of random action before training begins
     logdir = "./checkpoints"
 
     h_size = 512
@@ -117,11 +117,7 @@ if __name__=="__main__":
     # build graph
     graph = tf.Graph()
     with graph.as_default():
-        #with tf.variable_scope("qnetwork"):
-        main_qn = QNetwork(h_size, action_size, scope="main_qn", img_size=img_width)
-
-        #with tf.variable_scope("qnetwork", reuse=True):
-        target_qn = QNetwork(h_size, action_size, reuse=True, scope="target_qn", img_size=img_width)
+        main_qn = QNetwork(h_size, action_size, scope="main_qn")
 
     sv = tf.train.Supervisor(logdir=logdir, graph=graph)
     e = e_start
@@ -131,7 +127,7 @@ if __name__=="__main__":
         for ep in range(total_episodes):
             ep_buffer = []
             s = env.reset()
-            s_frame = process_frame(s, img_width)
+            s_frame = process_frame(s)
 
             rnn_state = (np.zeros([1, h_size]),np.zeros([1, h_size]))
             ep_rewards = []
@@ -151,7 +147,7 @@ if __name__=="__main__":
                     act, state_rnn1 = sess.run([main_qn.pred, main_qn.rnn_state], feed_dict=feed_dict)
 
                 s1, reward, done, obs = env.step(act)
-                s1_frame = process_frame(s1, img_width)
+                s1_frame = process_frame(s1)
                 ep_rewards.append(reward)
 
                 total_step += 1
@@ -172,24 +168,11 @@ if __name__=="__main__":
                             main_qn.state_init:state_train,
                             main_qn.batch_size:batch_size
                         }
-                        q_main = sess.run(main_qn.pred, feed_dict=dict_main)
-
-                        dict_target = {
-                            target_qn.frame_in:np.vstack(train_batch[:, 3]/255.0),
-                            target_qn.train_len:trace_len,
-                            target_qn.state_init:state_train,
-                            target_qn.batch_size:batch_size
-                        }
-                        q_target = sess.run(target_qn.q_out, feed_dict=dict_target)
-                        #print(q_target)
-                        #print(np.shape(q_target))
+                        q_main,q_target = sess.run([main_qn.pred, main_qn.q_out], feed_dict=dict_main)
 
                         end_multiplier = - (train_batch[:, 4] - 1)
                         double_q = q_target[range(batch_size * trace_len),q_main]
                         target_q_val = train_batch[:, 2] + gamma * double_q * end_multiplier
-                        #print(np.shape(double_q))
-                        #print(np.shape(end_multiplier))
-                        #print(np.shape(target_q_val))
 
                         update_dict = {
                             main_qn.frame_in:np.vstack(train_batch[:,0]/255.0),
@@ -207,14 +190,11 @@ if __name__=="__main__":
 
                 if done:
                     disc_r = discounted_reward(ep_rewards, gamma)
-                    print("Episode {} finished with discounted reward {}".format(ep, disc_r))
+                    score = discounted_reward(ep_rewards, 1)
+                    print("Episode {} finished with discounted reward {}, score {}".format(ep, disc_r, score))
                     break
 
             # add episode to experience buffer
             step_buffer = np.array(ep_buffer)
             step_buffer = list(zip(step_buffer))
             exp_buffer.add(step_buffer)
-
-
-
-
