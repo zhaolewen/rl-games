@@ -102,7 +102,7 @@ if __name__=="__main__":
     e_start = 1 # prob of random action
     e_end = 0.1
     annel_steps  = 10000 # steps from e_start to e_end
-    total_episodes = 1000
+    total_episodes = 10000
 
     pre_train_steps = 10000 # steps of random action before training begins
     logdir = "./checkpoints"
