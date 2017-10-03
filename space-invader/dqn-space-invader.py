@@ -4,6 +4,17 @@ import tensorflow.contrib.slim as slim
 import random
 import numpy as np
 import scipy.misc
+import time, requests
+
+def sendStatElastic(data, endpoint="http://35.187.182.237:9200/reinforce/games"):
+    data['step_time'] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        requests.post(endpoint, json=data)
+    except:
+        print("Elasticsearch exception")
+        #log.warning(r.text)
+    finally:
+        pass
 
 class QNetwork():
     def __init__(self,h_size,action_size, scope, reuse=None, img_size=84, learning_rate=0.0001):
@@ -92,16 +103,17 @@ def discounted_reward(rs, gamma):
     return total
 
 if __name__=="__main__":
-    env = gym.make('SpaceInvaders-v0')
+    game_name = 'SpaceInvaders-v0'
+    env = gym.make(game_name)
 
     batch_size = 4 # num of experience traces
     trace_len = 8
     update_step = 5
 
     gamma = 0.99 # discount factor for reward
-    e_start = 1 # prob of random action
+    e_start = 1.0 # prob of random action
     e_end = 0.1
-    annel_steps  = 10000 # steps from e_start to e_end
+    annel_steps  = 10000.0 # steps from e_start to e_end
     total_episodes = 10000
 
     pre_train_steps = 10000 # steps of random action before training begins
@@ -191,7 +203,9 @@ if __name__=="__main__":
                 if done:
                     disc_r = discounted_reward(ep_rewards, gamma)
                     score = discounted_reward(ep_rewards, 1)
-                    print("Episode {} finished with discounted reward {}, score {}".format(ep, disc_r, score))
+
+                    print("Episode {} finished with discounted reward {}, score {}, e {}".format(ep, disc_r, score,e))
+                    sendStatElastic({"discount_reward":disc_r, "score":score,"episode":ep,"rand_e_prob":e,'game_name':game_name})
                     break
 
             # add episode to experience buffer
