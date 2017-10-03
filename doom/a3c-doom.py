@@ -168,7 +168,7 @@ class Worker():
 
         self.batch_rnn_state, _ = sess.run([self.local_ac.state_out, self.local_ac.grad_apply], feed_dict=feed_dict)
 
-    def work(self, gamma, sess, coord, max_ep_buffer_size=30, max_episode_count=300):
+    def work(self, gamma, sess, coord, max_ep_buffer_size=100, max_episode_count=300,skip_frame=4):
         print("Starting worker {}".format(self.name))
         with sess.as_default():
             ep_count = 0
@@ -194,7 +194,7 @@ class Worker():
                     #act_p = normalize_prob(a_dist[0])
                     act = np.random.choice(range(self.act_size),p=a_dist[0])
                     #act = np.argmax(a_dist==act)
-                    r = self.env.make_action(self.actions[act])
+                    r = self.env.make_action(self.actions[act], skip_frame)/100.0/skip_frame
                     done = self.env.is_episode_finished()
 
                     if done:
@@ -225,11 +225,11 @@ class Worker():
 
 if __name__=="__main__":
     in_size = 84 * 84
-    max_episode_len = 300
+    max_episode_len = 10000
     action_count = 3
     gamma = 0.99
-    #num_workers = multiprocessing.cpu_count() - 2
-    num_workers = 3
+    num_workers = multiprocessing.cpu_count() - 2
+    #num_workers = 3
     print("Running with {} workers".format(num_workers))
 
     trainer = tf.train.AdamOptimizer(learning_rate=1e-4)
@@ -247,7 +247,7 @@ if __name__=="__main__":
 
         worker_threads = []
         for wk in workers:
-            work = lambda : wk.work(0.99, sess, coord, max_episode_count=max_episode_len)
+            work = lambda : wk.work(gamma, sess, coord, max_episode_count=max_episode_len)
             t = threading.Thread(target=(work))
 
             t.start()
