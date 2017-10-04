@@ -93,7 +93,7 @@ class ExperienceBuffer():
 
 def process_frame(f, height=84,width=84):
     f = scipy.misc.imresize(f, (height, width))
-    return np.reshape(f,[-1])
+    return np.reshape(f,[-1])/255.0
 
 def discounted_reward(rs, gamma):
     total = 0
@@ -122,6 +122,7 @@ if __name__=="__main__":
     h_size = 512
     tau = 0.001
     action_size = env.action_space.n
+    skip_frame = 2
 
     e_delta = (e_start - e_end) / annel_steps
     exp_buffer = ExperienceBuffer()
@@ -143,62 +144,71 @@ if __name__=="__main__":
 
             rnn_state = (np.zeros([1, h_size]),np.zeros([1, h_size]))
             ep_rewards = []
+            last_act = 0
 
             while True:
-                env.render()
-                feed_dict = {
-                    main_qn.frame_in: [s_frame / 255.0],
-                    main_qn.train_len: 1,
-                    main_qn.state_init: rnn_state,
-                    main_qn.batch_size: 1
-                }
-                if np.random.rand() < e or total_step<pre_train_steps:
-                    state_rnn1 = sess.run(main_qn.rnn_state, feed_dict=feed_dict)
-                    act = np.random.randint(0, action_size)
+                if total_step % skip_frame != 0:
+                    # continue last act
+                    s1, reward, done, obs = env.step(last_act)
                 else:
-                    act, state_rnn1 = sess.run([main_qn.pred, main_qn.rnn_state], feed_dict=feed_dict)
+                    env.render()
+                    # normal process
+                    feed_dict = {
+                        main_qn.frame_in: [s_frame],
+                        main_qn.train_len: 1,
+                        main_qn.state_init: rnn_state,
+                        main_qn.batch_size: 1
+                    }
+                    if np.random.rand() < e or total_step<pre_train_steps:
+                        state_rnn1 = sess.run(main_qn.rnn_state, feed_dict=feed_dict)
+                        act = np.random.randint(0, action_size)
+                    else:
+                        act, state_rnn1 = sess.run([main_qn.pred, main_qn.rnn_state], feed_dict=feed_dict)
 
-                s1, reward, done, obs = env.step(act)
-                s1_frame = process_frame(s1)
+                    last_act = act
+
+                    s1, reward, done, obs = env.step(act)
+                    s1_frame = process_frame(s1)
+
+                    ep_buffer.append(np.reshape(np.array([s_frame, act, reward, s1_frame, done]), [1,5]))
+
+                    if total_step > pre_train_steps:
+                        if e > e_end:
+                            e -= e_delta
+
+                        if total_step % update_step == 0:
+                            # update model
+                            state_train = (np.zeros([batch_size, h_size]), np.zeros([batch_size, h_size]))
+                            train_batch = exp_buffer.sample(batch_size, trace_len)
+
+                            dict_main = {
+                                main_qn.frame_in:np.vstack(train_batch[:, 3]),
+                                main_qn.train_len:trace_len,
+                                main_qn.state_init:state_train,
+                                main_qn.batch_size:batch_size
+                            }
+                            q_main,q_target = sess.run([main_qn.pred, main_qn.q_out], feed_dict=dict_main)
+
+                            end_multiplier = - (train_batch[:, 4] - 1)
+                            double_q = q_target[range(batch_size * trace_len),q_main]
+                            target_q_val = train_batch[:, 2] + gamma * double_q * end_multiplier
+
+                            update_dict = {
+                                main_qn.frame_in:np.vstack(train_batch[:, 0]),
+                                main_qn.target_q:target_q_val,
+                                main_qn.actions:train_batch[:,1],
+                                main_qn.train_len:trace_len,
+                                main_qn.state_init:state_train,
+                                main_qn.batch_size:batch_size
+                            }
+                            sess.run(main_qn.update, feed_dict=update_dict)
+
+                    s = s1
+                    s_frame = s1_frame
+                    rnn_state = state_rnn1
+
                 ep_rewards.append(reward)
-
                 total_step += 1
-                ep_buffer.append(np.reshape(np.array([s_frame, act, reward, s1_frame, done]), [1,5]))
-
-                if total_step > pre_train_steps:
-                    if e > e_end:
-                        e -= e_delta
-
-                    if total_step % update_step == 0:
-                        # update model
-                        state_train = (np.zeros([batch_size, h_size]), np.zeros([batch_size, h_size]))
-                        train_batch = exp_buffer.sample(batch_size, trace_len)
-
-                        dict_main = {
-                            main_qn.frame_in:np.vstack(train_batch[:, 3]/255.0),
-                            main_qn.train_len:trace_len,
-                            main_qn.state_init:state_train,
-                            main_qn.batch_size:batch_size
-                        }
-                        q_main,q_target = sess.run([main_qn.pred, main_qn.q_out], feed_dict=dict_main)
-
-                        end_multiplier = - (train_batch[:, 4] - 1)
-                        double_q = q_target[range(batch_size * trace_len),q_main]
-                        target_q_val = train_batch[:, 2] + gamma * double_q * end_multiplier
-
-                        update_dict = {
-                            main_qn.frame_in:np.vstack(train_batch[:,0]/255.0),
-                            main_qn.target_q:target_q_val,
-                            main_qn.actions:train_batch[:,1],
-                            main_qn.train_len:trace_len,
-                            main_qn.state_init:state_train,
-                            main_qn.batch_size:batch_size
-                        }
-                        sess.run(main_qn.update, feed_dict=update_dict)
-
-                s = s1
-                s_frame = s1_frame
-                rnn_state = state_rnn1
 
                 if done:
                     disc_r = discounted_reward(ep_rewards, gamma)

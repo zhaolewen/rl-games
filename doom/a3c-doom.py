@@ -24,27 +24,26 @@ def get_doom_game():
     game = DoomGame()
     game.set_doom_scenario_path("basic.wad")
     game.set_doom_map("map01")
+
+    # either config in the file, or config in the code
     #game.load_config("vizdoom/scenarios/basic.config")
     game.add_available_button(Button.ATTACK)
     game.add_available_button(Button.MOVE_LEFT)
     game.add_available_button(Button.MOVE_RIGHT)
-    game.set_screen_resolution(ScreenResolution.RES_160X120)
+    #game.set_screen_resolution(ScreenResolution.RES_160X120)
     game.set_screen_format(ScreenFormat.GRAY8)
     game.add_available_game_variable(GameVariable.AMMO2)
     game.add_available_game_variable(GameVariable.POSITION_X)
     game.add_available_game_variable(GameVariable.POSITION_Y)
-    game.set_episode_timeout(300)
+    game.set_episode_timeout(500)
     game.set_episode_start_time(10)
     game.set_living_reward(-1)
     game.set_mode(Mode.PLAYER)
-    game.set_sound_enabled(True)
+    game.set_sound_enabled(False)
 
     game.init()
 
     return game
-
-def update_target_graph(from_scope, to_scope):
-    return 0
 
 def process_frame(fr):
     s = fr[10:-10, 30:-30]
@@ -168,7 +167,7 @@ class Worker():
 
         self.batch_rnn_state, _ = sess.run([self.local_ac.state_out, self.local_ac.grad_apply], feed_dict=feed_dict)
 
-    def work(self, gamma, sess, coord, max_ep_buffer_size=100, max_episode_count=300,skip_frame=4):
+    def work(self, gamma, sess, coord, max_ep_buffer_size=200, max_episode_count=300,skip_frame=3,max_episode_len=500):
         print("Starting worker {}".format(self.name))
         with sess.as_default():
             ep_count = 0
@@ -194,7 +193,7 @@ class Worker():
                     #act_p = normalize_prob(a_dist[0])
                     act = np.random.choice(range(self.act_size),p=a_dist[0])
                     #act = np.argmax(a_dist==act)
-                    r = self.env.make_action(self.actions[act], skip_frame)/100.0/skip_frame
+                    r = self.env.make_action(self.actions[act], skip_frame)/max_episode_len # normalize to about 1.0
                     done = self.env.is_episode_finished()
 
                     if done:
