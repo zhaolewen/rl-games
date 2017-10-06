@@ -107,7 +107,7 @@ if __name__=="__main__":
     env = gym.make(game_name)
 
     batch_size = 4 # num of experience traces
-    trace_len = 8
+    trace_len = 16
     update_step = 5
 
     gamma = 0.99 # discount factor for reward
@@ -122,7 +122,7 @@ if __name__=="__main__":
     h_size = 512
     tau = 0.001
     action_size = env.action_space.n
-    skip_frame = 2
+    skip_frame = 3
 
     e_delta = (e_start - e_end) / annel_steps
     exp_buffer = ExperienceBuffer()
