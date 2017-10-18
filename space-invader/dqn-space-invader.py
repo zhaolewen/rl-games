@@ -16,18 +16,18 @@ def sendStatElastic(data, endpoint="http://35.187.182.237:9200/reinforce/games")
     finally:
         pass
 
-def update_target_graph(from_scope, to_scope, tau):
+def update_target_graph(from_scope, to_scope):
     from_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, from_scope)
     to_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, to_scope)
 
     op_holder = []
     for from_v,to_v in zip(from_vars, to_vars):
-        op_holder.append(to_v.assign(from_v.value() * tau + (1-tau)*to_v.value()))
+        op_holder.append(tf.assign(to_v, from_v))
 
     return op_holder
 
 class QNetwork():
-    def __init__(self,h_size,action_size, reuse=None, img_size=84, learning_rate=0.0002):
+    def __init__(self,h_size,action_size, img_size=84, learning_rate=0.00025):
         self.frame_in = tf.placeholder(tf.float32, [None, img_size * img_size * 3], name="frame_in")
         img_in = tf.reshape(self.frame_in, [-1,img_size, img_size, 3])
 
@@ -47,7 +47,7 @@ class QNetwork():
         #print(self.rnn_state)
         rnn = tf.reshape(rnn, [-1, h_size])
 
-        with tf.variable_scope("va_split", reuse=reuse):
+        with tf.variable_scope("va_split"):
             stream_a, stream_v = tf.split(rnn,2,axis=1)
             w_a = tf.Variable(tf.random_normal([h_size//2, action_size]))
             w_v = tf.Variable(tf.random_normal([h_size//2, 1]))
@@ -56,7 +56,7 @@ class QNetwork():
             value = tf.matmul(stream_v, w_v)
 
         # salience = tf.gradients(advantage, img_in)
-        with tf.variable_scope("predict", reuse=reuse):
+        with tf.variable_scope("predict"):
             self.q_out = value + tf.subtract(advantage, tf.reduce_mean(advantage, 1, keep_dims=True))
             self.pred = tf.argmax(self.q_out, axis=1)
 
@@ -70,7 +70,8 @@ class QNetwork():
 
             loss = tf.reduce_mean(td_error)
 
-        self.update = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(loss)
+        #self.update = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(loss)
+        self.update = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
 
         with tf.name_scope("summary"):
             tf.summary.scalar("loss", loss)
@@ -107,7 +108,7 @@ class QNetwork():
 
 
 class ExperienceBuffer():
-    def __init__(self, buffer_size=50000):
+    def __init__(self, buffer_size=10000):
         self.buffer = []
         self.buffer_size = buffer_size
 
@@ -143,23 +144,22 @@ if __name__=="__main__":
     game_name = 'SpaceInvaders-v0'
     env = gym.make(game_name)
 
-    batch_size = 16 # num of experience traces
-    trace_len = 8
+    batch_size = 32 # num of experience traces
+    trace_len = 6
     update_step = 5
-    update_target_step = update_step*100
+    update_target_step = 10000
 
     gamma = 0.99 # discount factor for reward
     e_start = 1.0 # prob of random action
     e_end = 0.1
-    annel_steps  = 20000.0 # steps from e_start to e_end
+    annel_steps  = 100000 # steps from e_start to e_end
     total_episodes = 10000
 
-    pre_train_steps = 20000 # steps of random action before training begins
+    pre_train_steps = 30000 # steps of random action before training begins
     logdir = "./checkpoints"
     pic_dir = "./pics/"
 
     h_size = 512
-    tau = 0.001
     action_size = env.action_space.n
     skip_frame = 4
     save_frame_step = 5000
@@ -186,8 +186,12 @@ if __name__=="__main__":
     e = e_start
     total_step = 0
 
-    with sv.managed_session() as sess:
-        update_qn_op = update_target_graph(scope_main, scope_target, tau)
+    config = tf.ConfigProto(log_device_placement=False)
+    config.gpu_options.allow_growth = True
+    config.allow_soft_placement = True
+
+    with sv.managed_session(config=config) as sess:
+        update_qn_op = update_target_graph(scope_main, scope_target)
 
         for ep in range(total_episodes):
             ep_buffer = []
@@ -197,6 +201,7 @@ if __name__=="__main__":
             rnn_state = (np.zeros([1, h_size]),np.zeros([1, h_size]))
             ep_rewards = []
             last_act = 0
+            t_ep_start = time.time()
 
             while True:
                 env.render()
@@ -213,7 +218,7 @@ if __name__=="__main__":
 
                     s1, reward, done, obs = env.step(act)
                     if total_step % save_frame_step == 0:
-                        s1_frame = process_frame(s1, im_file=pic_dir+str(total_step))
+                        s1_frame = process_frame(s1, im_file=pic_dir+str(total_step)+".jpg")
                     else:
                         s1_frame = process_frame(s1)
 
@@ -224,10 +229,6 @@ if __name__=="__main__":
                             e -= e_delta
 
                         if total_step % update_step == 0:
-                            if total_step % update_target_step==0:
-                                _, step_value = sess.run([update_qn_op, inc_global_step])
-                            else:
-                                step_value = sess.run(inc_global_step)
                             # update model
                             state_train = (np.zeros([batch_size, h_size]), np.zeros([batch_size, h_size]))
                             train_batch = exp_buffer.sample(batch_size, trace_len)
@@ -250,11 +251,16 @@ if __name__=="__main__":
                 ep_rewards.append(reward)
                 total_step += 1
 
+                if total_step % update_target_step == 0:
+                    _, step_value = sess.run([update_qn_op, inc_global_step])
+                else:
+                    step_value = sess.run(inc_global_step)
+
                 if done:
                     disc_r = discounted_reward(ep_rewards, gamma)
                     score = discounted_reward(ep_rewards, 1)
 
-                    print("Episode {} finished with discounted reward {}, score {}, e {}".format(ep, disc_r, score,e))
+                    print("Episode {} finished in {} seconds with discounted reward {}, score {}, e {}, global step {}".format(ep, time.time()-t_ep_start, disc_r, score,e, step_value))
                     sendStatElastic({"discount_reward":disc_r, "score":score,"episode":ep,"rand_e_prob":e,'game_name':game_name})
                     break
 
