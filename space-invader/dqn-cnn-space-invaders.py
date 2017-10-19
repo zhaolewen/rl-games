@@ -5,6 +5,7 @@ import random
 import numpy as np
 import scipy.misc
 import time, requests
+import PIL
 
 def sendStatElastic(data, endpoint="http://35.187.182.237:9200/reinforce/games"):
     data['step_time'] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -27,28 +28,20 @@ def update_target_graph(from_scope, to_scope):
     return op_holder
 
 class QNetwork():
-    def __init__(self,h_size,action_size, img_size=84, learning_rate=0.00025):
-        self.frame_in = tf.placeholder(tf.float32, [None, img_size * img_size * 3], name="frame_in")
-        img_in = tf.reshape(self.frame_in, [-1,img_size, img_size, 3])
+    def __init__(self,h_size,action_size, img_size=84, learning_rate=0.00025, frame_count=4):
+        self.frame_in = tf.placeholder(tf.float32, [None, img_size * img_size * frame_count], name="frame_in")
+        img_in = tf.reshape(self.frame_in, [-1,img_size, img_size, frame_count])
 
         conv1 = slim.convolution2d(scope="conv1",inputs=img_in, num_outputs=32, kernel_size=[8,8], stride=[4, 4], padding="VALID", biases_initializer=None)
         conv2 = slim.convolution2d(scope="conv2",inputs=conv1, num_outputs=64, kernel_size=[4, 4], stride=[2, 2], padding="VALID", biases_initializer=None)
         conv3 = slim.convolution2d(scope="conv3",inputs=conv2, num_outputs=64, kernel_size=[3, 3], stride=[1, 1], padding="VALID", biases_initializer=None)
         conv4 = slim.convolution2d(scope="conv4",inputs=conv3, num_outputs=h_size, kernel_size=[7, 7], stride=[1, 1], padding="VALID", biases_initializer=None)
 
-        self.train_len = tf.placeholder(tf.int32,[])
         self.batch_size = tf.placeholder(tf.int32, [])
-        conv_flat = tf.reshape(slim.flatten(conv4), [self.batch_size, self.train_len, h_size])
-
-        cell = tf.nn.rnn_cell.BasicLSTMCell(h_size, state_is_tuple=True, reuse=False)
-        self.state_init = cell.zero_state(self.batch_size, tf.float32)
-        rnn, self.rnn_state = tf.nn.dynamic_rnn(cell, conv_flat,dtype=tf.float32, initial_state=self.state_init)
-        #print(rnn)
-        #print(self.rnn_state)
-        rnn = tf.reshape(rnn, [-1, h_size])
+        conv_flat = tf.reshape(slim.flatten(conv4), [self.batch_size, h_size])
 
         with tf.variable_scope("va_split"):
-            stream_a, stream_v = tf.split(rnn,2,axis=1)
+            stream_a, stream_v = tf.split(conv_flat,2,axis=1)
             w_a = tf.Variable(tf.random_normal([h_size//2, action_size]))
             w_v = tf.Variable(tf.random_normal([h_size//2, 1]))
 
@@ -70,8 +63,7 @@ class QNetwork():
 
             loss = tf.reduce_mean(td_error)
 
-        #self.update = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(loss)
-        self.update = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
+        self.update = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(loss)
 
         with tf.name_scope("summary"):
             tf.summary.scalar("loss", loss)
@@ -82,24 +74,20 @@ class QNetwork():
 
             self.summary_op = tf.summary.merge_all()
 
-    def predict_act(self, frame_list, init_state,trace_len=1, batch_size=1, session=None):
+    def predict_act(self, frame_list, batch_size=1, session=None):
         dict = {
             self.frame_in: frame_list,
-            self.train_len: trace_len,
-            self.state_init: init_state,
             self.batch_size: batch_size
         }
-        act, q_vals, rnn_s = session.run([self.pred, self.q_out, self.rnn_state], feed_dict=dict)
+        act, q_vals = session.run([self.pred, self.q_out], feed_dict=dict)
 
-        return act, q_vals,rnn_s
+        return act, q_vals
 
-    def update_nn(self, in_frame, target_q_val, acts, trace_len, init_state, batch_size, session, writer=None, step=None):
+    def update_nn(self, in_frame, target_q_val, acts, batch_size, session, writer=None, step=None):
         update_dict = {
             self.frame_in: in_frame,
             self.target_q: target_q_val,
             self.actions: acts,
-            self.train_len: trace_len,
-            self.state_init: init_state,
             self.batch_size: batch_size
         }
         _, summ = session.run([self.update, self.summary_op], feed_dict=update_dict)
@@ -108,7 +96,7 @@ class QNetwork():
 
 
 class ExperienceBuffer():
-    def __init__(self, buffer_size=10000):
+    def __init__(self, buffer_size=100000):
         self.buffer = []
         self.buffer_size = buffer_size
 
@@ -117,21 +105,32 @@ class ExperienceBuffer():
         if len(self.buffer) > self.buffer_size:
             self.buffer.pop(0)
 
-    def sample(self, batch_size, trace_len):
+    def sample(self, batch_size):
         samples_ep = random.sample(self.buffer, batch_size)
-        samples_traces = []
-        for episode in samples_ep:
-            pt = np.random.randint(0, len(episode) + 1 - trace_len)
-            samples_traces.append(episode[pt:pt+trace_len])
 
-        samples_traces = np.array(samples_traces)
-        return np.reshape(samples_traces, [batch_size * trace_len, 5])
+        return np.reshape(np.array(samples_ep), [batch_size, 5])
 
-def process_frame(f, height=84,width=84, im_file=None):
+
+class FrameBuffer():
+    def __init__(self, buffer_size=4, frame_size=None):
+        self.buffer_size = buffer_size
+        self.frame_size = frame_size
+        self._frames = [[0] * frame_size] * buffer_size
+
+    def add(self, frame):
+        self._frames.append(frame)
+        if len(self._frames) > self.buffer_size:
+            self._frames.pop(0)
+
+    def frames(self):
+        return np.reshape(self._frames, [1, self.frame_size * self.buffer_size])
+
+
+def process_frame(f, height=84,width=84):
     f = scipy.misc.imresize(f, (height, width))
-    if im_file is not None:
-        scipy.misc.imsave(im_file, f)
-    return np.reshape(f,[-1])/255.0
+    f = np.dot(f[...,:3], [0.299, 0.587, 0.114])
+
+    return np.reshape(f,[-1])
 
 def discounted_reward(rs, gamma):
     total = 0
@@ -143,10 +142,9 @@ def discounted_reward(rs, gamma):
 if __name__=="__main__":
     game_name = 'SpaceInvaders-v0'
     env = gym.make(game_name)
+    game_name += '-cnn'
 
     batch_size = 32 # num of experience traces
-    trace_len = 6
-    update_step = 5
     update_target_step = 10000
 
     gamma = 0.99 # discount factor for reward
@@ -155,14 +153,14 @@ if __name__=="__main__":
     annel_steps  = 100000 # steps from e_start to e_end
     total_episodes = 10000
 
-    pre_train_steps = 30000 # steps of random action before training begins
-    logdir = "./checkpoints/lstm/"
-    pic_dir = "./pics/"
+    pre_train_steps = 5000 # steps of random action before training begins
+    logdir = "./checkpoints/cnn"
 
     h_size = 512
     action_size = env.action_space.n
     skip_frame = 4
-    save_frame_step = 5000
+    frame_count = 4
+    img_size = 84
 
     e_delta = (e_start - e_end) / annel_steps
     exp_buffer = ExperienceBuffer()
@@ -186,19 +184,17 @@ if __name__=="__main__":
     e = e_start
     total_step = 0
 
-    config = tf.ConfigProto(log_device_placement=False)
-    config.gpu_options.allow_growth = True
-    config.allow_soft_placement = True
-
-    with sv.managed_session(config=config) as sess:
+    with sv.managed_session() as sess:
         update_qn_op = update_target_graph(scope_main, scope_target)
+        step_value = sess.run(global_step)
 
         for ep in range(total_episodes):
-            ep_buffer = []
+            frame_buffer = FrameBuffer(buffer_size=frame_count, frame_size=img_size*img_size)
+
             s = env.reset()
             s_frame = process_frame(s)
+            frame_buffer.add(s_frame)
 
-            rnn_state = (np.zeros([1, h_size]),np.zeros([1, h_size]))
             ep_rewards = []
             last_act = 0
             t_ep_start = time.time()
@@ -209,7 +205,7 @@ if __name__=="__main__":
                     s1, reward, done, obs = env.step(last_act)
                 else:
                     # normal process
-                    act,_, state_rnn1 = main_qn.predict_act([s_frame], rnn_state, session=sess)
+                    act,_ = main_qn.predict_act(frame_buffer.frames(), session=sess)
                     act = act[0]
                     if np.random.rand() < e or total_step<pre_train_steps:
                         act = np.random.randint(0, action_size)
@@ -217,36 +213,35 @@ if __name__=="__main__":
                     last_act = act
 
                     s1, reward, done, obs = env.step(act)
-                    if total_step % save_frame_step == 0:
-                        s1_frame = process_frame(s1, im_file=pic_dir+str(total_step)+".jpg")
-                    else:
-                        s1_frame = process_frame(s1)
+                    s1_frame = process_frame(s1)
 
-                    ep_buffer.append(np.reshape(np.array([s_frame, act, reward, s1_frame, done]), [1,5]))
+                    begin_frames = frame_buffer.frames()
+
+                    frame_buffer.add(s1_frame)
+                    next_frames = frame_buffer.frames()
+                    exp_buffer.add(np.reshape(np.array([begin_frames, act, reward, next_frames, done]), [1,5]))
 
                     if total_step > pre_train_steps:
                         if e > e_end:
                             e -= e_delta
 
-                        if total_step % update_step == 0:
+                        #if total_step % update_step == 0:
                             # update model
-                            state_train = (np.zeros([batch_size, h_size]), np.zeros([batch_size, h_size]))
-                            train_batch = exp_buffer.sample(batch_size, trace_len)
+                        train_batch = exp_buffer.sample(batch_size)
 
-                            pred_act, _, _ = main_qn.predict_act(np.vstack(train_batch[:, 3]),state_train, trace_len, batch_size, sess)
-                            _, q_vals, _ = target_qn.predict_act(np.vstack(train_batch[:, 3]),state_train, trace_len, batch_size, sess)
+                        pred_act, _ = main_qn.predict_act(np.vstack(train_batch[:, 3]), batch_size, sess)
+                        _, q_vals = target_qn.predict_act(np.vstack(train_batch[:, 3]), batch_size, sess)
 
-                            end_multiplier = - (train_batch[:, 4] - 1)
-                            double_q = q_vals[range(batch_size * trace_len),pred_act]
-                            target_q_val = train_batch[:, 2] + gamma * double_q * end_multiplier
+                        end_multiplier = - (train_batch[:, 4] - 1)
+                        double_q = q_vals[range(batch_size),pred_act]
+                        target_q_val = train_batch[:, 2] + gamma * double_q * end_multiplier
 
-                            in_frames = np.vstack(train_batch[:, 0])
-                            acts = train_batch[:,1]
-                            main_qn.update_nn(in_frames, target_q_val, acts, trace_len, state_train, batch_size, sess, summ_writer, step_value)
+                        in_frames = np.vstack(train_batch[:, 0])
+                        acts = train_batch[:,1]
+                        main_qn.update_nn(in_frames, target_q_val, acts, batch_size, sess, summ_writer, step_value)
 
                     s = s1
                     s_frame = s1_frame
-                    rnn_state = state_rnn1
 
                 ep_rewards.append(reward)
                 total_step += 1
@@ -263,8 +258,3 @@ if __name__=="__main__":
                     print("Episode {} finished in {} seconds with discounted reward {}, score {}, e {}, global step {}".format(ep, time.time()-t_ep_start, disc_r, score,e, step_value))
                     sendStatElastic({"discount_reward":disc_r, "score":score,"episode":ep,"rand_e_prob":e,'game_name':game_name})
                     break
-
-            # add episode to experience buffer
-            step_buffer = np.array(ep_buffer)
-            step_buffer = list(zip(step_buffer))
-            exp_buffer.add(step_buffer)
