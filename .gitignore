@@ -1,4 +1,4 @@
-checkpoints/
+checkpoint*/
 
 # ignore all . files and . folders
 .*

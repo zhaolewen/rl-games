@@ -17,6 +17,16 @@ def sendStatElastic(data, endpoint="http://35.187.182.237:9200/reinforce/games")
     finally:
         pass
 
+def update_target_graph(from_scope, to_scope, tau=0.001):
+    from_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, from_scope)
+    to_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, to_scope)
+
+    op_holder = []
+    for from_v,to_v in zip(from_vars, to_vars):
+        op_holder.append(tf.assign(to_v, from_v.value() * tau + to_v.value() * (1-tau)))
+
+    return op_holder
+
 class QNetwork():
     def __init__(self,h_size,action_size, img_size=84, learning_rate=0.00025, frame_count=4):
         self.frame_in = tf.placeholder(tf.float32, [None, img_size * img_size * frame_count], name="frame_in")
@@ -122,13 +132,6 @@ def process_frame(f, height=84,width=84):
 
     return np.reshape(f,[-1])
 
-def discounted_reward(rs, gamma):
-    total = 0
-    for k in reversed(range(len(rs))):
-        total = total * gamma + rs[k]
-
-    return total
-
 def clip_reward(r):
     if r>0:
         return 1.0
@@ -137,10 +140,17 @@ def clip_reward(r):
 
     return 0
 
+def discounted_reward(rs, gamma):
+    total = 0
+    for k in reversed(range(len(rs))):
+        total = total * gamma + rs[k]
+
+    return total
+
 if __name__=="__main__":
     game_name = 'SpaceInvaders-v0'
     env = gym.make(game_name)
-    game_name += '-dqn-cnn'
+    game_name += '-ddqn-cnn'
 
     batch_size = 32 # num of experience traces
     update_target_step = 10000
@@ -150,19 +160,22 @@ if __name__=="__main__":
     e_end = 0.1
     annel_steps  = 100000 # steps from e_start to e_end
     total_episodes = 10000
+    update_step = 4
 
     pre_train_steps = 5000 # steps of random action before training begins
-    logdir = "./checkpoints/dqn-cnn"
+    logdir = "./checkpoints/ddqn-cnn"
 
     h_size = 512
     action_size = env.action_space.n
     skip_frame = 4
     frame_count = 4
-    update_step = 4
     img_size = 84
 
     e_delta = (e_start - e_end) / annel_steps
     exp_buffer = ExperienceBuffer()
+
+    scope_main = "main_qn"
+    scope_target = "target_qn"
 
     # build graph
     graph = tf.Graph()
@@ -171,13 +184,17 @@ if __name__=="__main__":
         inc_global_step = tf.assign(global_step, global_step.value()+1)
         summ_writer = tf.summary.FileWriter(logdir)
 
-        main_qn = QNetwork(h_size, action_size)
+        with tf.variable_scope(scope_main):
+            main_qn = QNetwork(h_size, action_size)
+        with tf.variable_scope(scope_target):
+            target_qn = QNetwork(h_size, action_size)
 
     sv = tf.train.Supervisor(logdir=logdir, graph=graph, summary_op=None)
     e = e_start
     total_step = 0
 
     with sv.managed_session() as sess:
+        update_qn_op = update_target_graph(scope_main, scope_target)
         step_value = sess.run(global_step)
 
         for ep in range(total_episodes):
@@ -221,7 +238,8 @@ if __name__=="__main__":
                             # update model
                             train_batch = exp_buffer.sample(batch_size)
 
-                            pred_act, q_vals = main_qn.predict_act(np.vstack(train_batch[:, 3]), batch_size, sess)
+                            pred_act, _ = main_qn.predict_act(np.vstack(train_batch[:, 3]), batch_size, sess)
+                            _, q_vals = target_qn.predict_act(np.vstack(train_batch[:, 3]), batch_size, sess)
 
                             end_multiplier = - (train_batch[:, 4] - 1)
                             double_q = q_vals[range(batch_size),pred_act]
@@ -230,13 +248,17 @@ if __name__=="__main__":
                             in_frames = np.vstack(train_batch[:, 0])
                             acts = train_batch[:,1]
                             main_qn.update_nn(in_frames, target_q_val, acts, batch_size, sess, summ_writer, step_value)
-                            step_value = sess.run(inc_global_step)
 
                     s = s1
                     s_frame = s1_frame
 
                 ep_rewards.append(reward)
                 total_step += 1
+
+                if total_step % update_target_step == 0:
+                    _, step_value = sess.run([update_qn_op, inc_global_step])
+                else:
+                    step_value = sess.run(inc_global_step)
 
                 if done:
                     disc_r = discounted_reward(ep_rewards, gamma)

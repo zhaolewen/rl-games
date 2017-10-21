@@ -68,6 +68,12 @@ class QNetwork():
 
             td_error = tf.square(self.target_q - Q)
 
+            self.maskA = tf.zeros([self.batch_size, self.trainLength // 2])
+            self.maskB = tf.ones([self.batch_size, self.trainLength // 2])
+            self.mask = tf.concat([self.maskA, self.maskB], 1)
+            self.mask = tf.reshape(self.mask, [-1])
+            self.loss = tf.reduce_mean(self.td_error * self.mask)
+
             loss = tf.reduce_mean(td_error)
 
         #self.update = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(loss)
