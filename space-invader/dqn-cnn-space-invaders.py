@@ -16,6 +16,15 @@ def sendStatElastic(data, endpoint="http://35.187.182.237:9200/reinforce/games")
         #log.warning(r.text)
     finally:
         pass
+        
+
+def update_target_graph(from_scope, to_scope):
+    from_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, from_scope)
+    to_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, to_scope)
+
+    op_holder = []
+    for from_v,to_v in zip(from_vars, to_vars):
+        op_holder.append(tf.assign(to_v, from_v))
 
 class QNetwork():
     def __init__(self,h_size,action_size, img_size=84, learning_rate=0.00025, frame_count=4):
@@ -162,6 +171,9 @@ if __name__=="__main__":
     frame_count = 4
     update_step = 4
     img_size = 84
+    
+    scope_main = "main_qn"
+    scope_target = "target_qn"
 
     e_delta = (e_start - e_end) / annel_steps
     exp_buffer = ExperienceBuffer()
@@ -172,8 +184,14 @@ if __name__=="__main__":
         global_step = tf.get_variable("global_step",(),tf.int64,tf.zeros_initializer(), trainable=False)
         inc_global_step = tf.assign(global_step, global_step.value()+1)
         summ_writer = tf.summary.FileWriter(logdir)
-
-        main_qn = QNetwork(h_size, action_size)
+        
+        with tf.variable_scope(scope_main):
+            main_qn = QNetwork(h_size, action_size)
+            
+        with tf.variable_scope(scope_target):
+            target_qn = QNetwork(h_size, action_size)
+            
+        update_target_op = update_target_graph(scope_main, scope_target)
 
     sv = tf.train.Supervisor(logdir=logdir, graph=graph, summary_op=None)
     e = e_start
@@ -227,7 +245,7 @@ if __name__=="__main__":
                             # update model
                             train_batch = exp_buffer.sample(batch_size)
 
-                            pred_act, q_vals = main_qn.predict_act(np.vstack(train_batch[:, 3]), batch_size, sess)
+                            pred_act, q_vals = target_qn.predict_act(np.vstack(train_batch[:, 3]), batch_size, sess)
 
                             end_multiplier = - (train_batch[:, 4] - 1)
                             double_q = q_vals[range(batch_size),pred_act]
@@ -237,6 +255,9 @@ if __name__=="__main__":
                             acts = train_batch[:,1]
                             main_qn.update_nn(in_frames, target_q_val, acts, batch_size, sess, summ_writer, step_value)
                             step_value = sess.run(inc_global_step)
+                            
+                        if total_step % update_target_step == 0:
+                            sess.run(update_target_op)
 
                     s = s1
                     s_frame = s1_frame
