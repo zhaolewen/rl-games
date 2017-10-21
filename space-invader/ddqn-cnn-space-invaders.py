@@ -126,7 +126,9 @@ class FrameBuffer():
         return np.reshape(np.array(self._frames), [1, self.frame_size * self.buffer_size])
 
 
-def process_frame(f, height=84,width=84):
+def process_frame(f, last_f=None, height=84,width=84):
+    if last_f is not None:
+        f = np.amax(np.array([f, last_f]), axis=0)
     f = scipy.misc.imresize(f, (height, width))
     f = np.dot(f[...,:3], [0.299, 0.587, 0.114])/255.0
 
@@ -208,10 +210,13 @@ if __name__=="__main__":
             last_act = 0
             t_ep_start = time.time()
 
+            last_frame = None
+
             while True:
                 env.render()
                 if total_step%skip_frame !=0:
                     s1, reward, done, obs = env.step(last_act)
+                    last_frame = s1
                 else:
                     # normal process
                     begin_frames = frame_buffer.frames()
@@ -222,9 +227,11 @@ if __name__=="__main__":
 
                     last_act = act
 
-                    s1, reward, done, obs = env.step(act)
+                    s1, reward, done, _ = env.step(act)
+
                     r2 = clip_reward(reward)
-                    s1_frame = process_frame(s1)
+                    s1_frame = process_frame(s1, last_frame)
+                    last_frame = s1
 
                     frame_buffer.add(s1_frame)
                     next_frames = frame_buffer.frames()
@@ -248,6 +255,7 @@ if __name__=="__main__":
                             in_frames = np.vstack(train_batch[:, 0])
                             acts = train_batch[:,1]
                             main_qn.update_nn(in_frames, target_q_val, acts, batch_size, sess, summ_writer, step_value)
+                            step_value = sess.run(inc_global_step)
 
                     s = s1
                     s_frame = s1_frame
@@ -256,9 +264,7 @@ if __name__=="__main__":
                 total_step += 1
 
                 if total_step % update_target_step == 0:
-                    _, step_value = sess.run([update_qn_op, inc_global_step])
-                else:
-                    step_value = sess.run(inc_global_step)
+                    sess.run(update_qn_op)
 
                 if done:
                     disc_r = discounted_reward(ep_rewards, gamma)

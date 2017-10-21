@@ -116,7 +116,9 @@ class FrameBuffer():
         return np.reshape(np.array(self._frames), [1, self.frame_size * self.buffer_size])
 
 
-def process_frame(f, height=84,width=84):
+def process_frame(f, last_f=None, height=84,width=84):
+    if last_f is not None:
+        f = np.amax(np.array([f, last_f]), axis=0)
     f = scipy.misc.imresize(f, (height, width))
     f = np.dot(f[...,:3], [0.299, 0.587, 0.114])/255.0
 
@@ -191,10 +193,13 @@ if __name__=="__main__":
             last_act = 0
             t_ep_start = time.time()
 
+            last_frame = None
+
             while True:
                 env.render()
                 if total_step%skip_frame !=0:
                     s1, reward, done, obs = env.step(last_act)
+                    last_frame = s1
                 else:
                     # normal process
                     begin_frames = frame_buffer.frames()
@@ -207,7 +212,8 @@ if __name__=="__main__":
 
                     s1, reward, done, obs = env.step(act)
                     r2 = clip_reward(reward)
-                    s1_frame = process_frame(s1)
+                    s1_frame = process_frame(s1, last_frame)
+                    last_frame = s1
 
                     frame_buffer.add(s1_frame)
                     next_frames = frame_buffer.frames()
