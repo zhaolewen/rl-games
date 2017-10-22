@@ -26,6 +26,8 @@ def update_target_graph(from_scope, to_scope):
     for from_v,to_v in zip(from_vars, to_vars):
         op_holder.append(tf.assign(to_v, from_v))
 
+    return op_holder
+
 class QNetwork():
     def __init__(self,h_size,action_size, img_size=84, learning_rate=0.00025, frame_count=4):
         self.frame_in = tf.placeholder(tf.float32, [None, img_size * img_size * frame_count], name="frame_in")
