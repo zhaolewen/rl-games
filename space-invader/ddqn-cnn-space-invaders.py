@@ -199,13 +199,14 @@ if __name__=="__main__":
         with tf.variable_scope(scope_target):
             target_qn = QNetwork(h_size, action_size)
 
+        update_qn_op = update_target_graph(scope_main, scope_target, tau)
+        copy_graph_op = update_target_graph(scope_main, scope_target, 1.0)
+
     sv = tf.train.Supervisor(logdir=logdir, graph=graph, summary_op=None)
     e = e_start
     total_step = 0
 
     with sv.managed_session() as sess:
-        update_qn_op = update_target_graph(scope_main, scope_target, tau)
-        copy_graph_op = update_target_graph(scope_main, scope_target, 1.0)
         step_value,_ = sess.run([global_step, copy_graph_op])
 
         for ep in range(total_episodes):
@@ -239,7 +240,7 @@ if __name__=="__main__":
 
                     s1, reward, done, _ = env.step(act)
 
-                    r2 = clip_reward_tan(reward)
+                    r2 = clip_reward(reward)
                     s1_frame = process_frame(s1, last_frame)
                     last_frame = s1
 
