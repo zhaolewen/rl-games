@@ -182,7 +182,7 @@ if __name__=="__main__":
     img_size = 84
 
     e_delta = (e_start - e_end) / annel_steps
-    exp_buffer = ExperienceBuffer()
+    exp_buffer = ExperienceBuffer(buffer_size=exp_buffer_size)
 
     scope_main = "main_qn"
     scope_target = "target_qn"
@@ -268,8 +268,6 @@ if __name__=="__main__":
                             step_value = sess.run(inc_global_step)
 
                             # register rand prob
-                            ep_rewards.append(reward)
-                            total_step += 1
                             summary = tf.Summary()
                             summary.value.add(tag='rand_prob', simple_value=e)
                             summ_writer.add_summary(summary, step_value)
@@ -277,6 +275,9 @@ if __name__=="__main__":
 
                     s = s1
                     s_frame = s1_frame
+
+                ep_rewards.append(reward)
+                total_step += 1
 
                 if total_step % update_target_step == 0:
                     sess.run(update_qn_op)
