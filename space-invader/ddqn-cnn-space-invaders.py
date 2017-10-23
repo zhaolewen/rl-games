@@ -6,6 +6,7 @@ import numpy as np
 import scipy.misc
 import time, requests
 import PIL
+from tensorflow.core.framework import summary_pb2
 
 def sendStatElastic(data, endpoint="http://35.187.182.237:9200/reinforce/games"):
     data['step_time'] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -169,6 +170,7 @@ if __name__=="__main__":
     total_episodes = 90000
     update_step = 4
     tau = 0.001
+    exp_buffer_size = 200000
 
     pre_train_steps = 5000 # steps of random action before training begins
     logdir = "./checkpoints/ddqn-cnn"
@@ -265,11 +267,16 @@ if __name__=="__main__":
                             main_qn.update_nn(in_frames, target_q_val, acts, batch_size, sess, summ_writer, step_value)
                             step_value = sess.run(inc_global_step)
 
+                            # register rand prob
+                            ep_rewards.append(reward)
+                            total_step += 1
+                            summary = tf.Summary()
+                            summary.value.add(tag='rand_prob', simple_value=e)
+                            summ_writer.add_summary(summary, step_value)
+                            summ_writer.flush()
+
                     s = s1
                     s_frame = s1_frame
-
-                ep_rewards.append(reward)
-                total_step += 1
 
                 if total_step % update_target_step == 0:
                     sess.run(update_qn_op)
