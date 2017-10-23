@@ -268,12 +268,12 @@ if __name__=="__main__":
                             step_value = sess.run(inc_global_step)
 
                             # register rand prob
-                            ep_rewards.append(reward)
-                            total_step += 1
-                            summary = tf.Summary()
-                            summary.value.add(tag='rand_prob', simple_value=e)
-                            summ_writer.add_summary(summary, step_value)
-                            summ_writer.flush()
+                            #ep_rewards.append(reward)
+                            #total_step += 1
+                            #summary = tf.Summary()
+                            #summary.value.add(tag='rand_prob', simple_value=e)
+                            #summ_writer.add_summary(summary, step_value)
+                            #summ_writer.flush()
 
                     s = s1
                     s_frame = s1_frame
