@@ -23,7 +23,7 @@ def update_target_graph(from_scope, to_scope, tau=0.001):
 
     op_holder = []
     for from_v,to_v in zip(from_vars, to_vars):
-        op_holder.append(tf.assign(to_v, from_v.value() * tau + to_v.value() * (1-tau)))
+        op_holder.append(tf.assign(to_v, from_v.value() * tau + to_v.value() * (1.0-tau)))
 
     return op_holder
 
@@ -142,6 +142,9 @@ def clip_reward(r):
 
     return 0
 
+def clip_reward_tan(r):
+    return np.arctan(r)
+
 def discounted_reward(rs, gamma):
     total = 0
     for k in reversed(range(len(rs))):
@@ -165,6 +168,7 @@ if __name__=="__main__":
     annel_steps  = 1000000 # steps from e_start to e_end
     total_episodes = 90000
     update_step = 4
+    tau = 0.001
 
     pre_train_steps = 5000 # steps of random action before training begins
     logdir = "./checkpoints/ddqn-cnn"
@@ -198,8 +202,9 @@ if __name__=="__main__":
     total_step = 0
 
     with sv.managed_session() as sess:
-        update_qn_op = update_target_graph(scope_main, scope_target)
-        step_value = sess.run(global_step)
+        update_qn_op = update_target_graph(scope_main, scope_target, tau)
+        copy_graph_op = update_target_graph(scope_main, scope_target, 1.0)
+        step_value,_ = sess.run([global_step, copy_graph_op])
 
         for ep in range(total_episodes):
             frame_buffer = FrameBuffer(buffer_size=frame_count, frame_size=img_size*img_size)
@@ -232,7 +237,7 @@ if __name__=="__main__":
 
                     s1, reward, done, _ = env.step(act)
 
-                    r2 = clip_reward(reward)
+                    r2 = clip_reward_tan(reward)
                     s1_frame = process_frame(s1, last_frame)
                     last_frame = s1
 
