@@ -172,7 +172,7 @@ if __name__=="__main__":
     tau = 0.001
     exp_buffer_size = 200000
 
-    pre_train_steps = 5000 # steps of random action before training begins
+    pre_train_steps = 10000 # steps of random action before training begins
     logdir = "./checkpoints/ddqn-cnn"
 
     h_size = 512
@@ -199,7 +199,7 @@ if __name__=="__main__":
         with tf.variable_scope(scope_target):
             target_qn = QNetwork(h_size, action_size)
 
-        update_qn_op = update_target_graph(scope_main, scope_target, tau)
+        #update_qn_op = update_target_graph(scope_main, scope_target, tau)
         copy_graph_op = update_target_graph(scope_main, scope_target, 1.0)
 
     sv = tf.train.Supervisor(logdir=logdir, graph=graph, summary_op=None)
@@ -240,7 +240,7 @@ if __name__=="__main__":
 
                     s1, reward, done, _ = env.step(act)
 
-                    r2 = clip_reward(reward)
+                    r2 = clip_reward_tan(reward)
                     s1_frame = process_frame(s1, last_frame)
                     last_frame = s1
 
@@ -281,7 +281,7 @@ if __name__=="__main__":
                 total_step += 1
 
                 if total_step % update_target_step == 0:
-                    sess.run(update_qn_op)
+                    sess.run(copy_graph_op)
 
                 if done:
                     disc_r = discounted_reward(ep_rewards, gamma)
