@@ -154,14 +154,16 @@ if __name__=="__main__":
     env = gym.make(game_name)
     game_name += '-ddqn-cnn'
 
+    render = False
+
     batch_size = 32 # num of experience traces
     update_target_step = 10000
 
     gamma = 0.99 # discount factor for reward
     e_start = 1.0 # prob of random action
     e_end = 0.1
-    annel_steps  = 100000 # steps from e_start to e_end
-    total_episodes = 10000
+    annel_steps  = 1000000 # steps from e_start to e_end
+    total_episodes = 90000
     update_step = 4
 
     pre_train_steps = 5000 # steps of random action before training begins
@@ -213,7 +215,8 @@ if __name__=="__main__":
             last_frame = None
 
             while True:
-                env.render()
+                if render:
+                    env.render()
                 if total_step%skip_frame !=0:
                     s1, reward, done, obs = env.step(last_act)
                     last_frame = s1
