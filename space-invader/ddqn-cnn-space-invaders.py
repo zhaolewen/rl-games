@@ -262,6 +262,7 @@ if __name__=="__main__":
                         e -= e_delta
 
                     if total_step % update_step == 0:
+                        sess.run(update_qn_op)
                         # update model
                         train_batch = exp_buffer.sample(batch_size)
 
@@ -288,9 +289,6 @@ if __name__=="__main__":
 
                 ep_rewards.append(reward)
                 total_step += 1
-
-                if total_step % update_target_step == 0:
-                    sess.run(update_qn_op)
 
                 if done:
                     disc_r = discounted_reward(ep_rewards, gamma)
