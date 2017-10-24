@@ -173,7 +173,7 @@ if __name__=="__main__":
     tau = 0.001
     exp_buffer_size = 100000
 
-    pre_train_steps = 10000 # steps of random action before training begins
+    pre_train_steps = 20000 # steps of random action before training begins
     logdir = "./checkpoints/ddqn-cnn"
 
     h_size = 512
@@ -227,10 +227,12 @@ if __name__=="__main__":
                     env.render()
 
                 begin_frames = frame_buffer.frames()
-                act,_ = main_qn.predict_act(begin_frames, session=sess)
-                act = act[0]
+
                 if np.random.rand() < e or total_step<pre_train_steps:
                     act = np.random.randint(0, action_size)
+                else:
+                    act, _ = main_qn.predict_act(begin_frames, session=sess)
+                    act = act[0]
 
                 last_act = act
 
