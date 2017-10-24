@@ -170,7 +170,7 @@ if __name__=="__main__":
     total_episodes = 90000
     update_step = 4
     tau = 0.001
-    exp_buffer_size = 200000
+    exp_buffer_size = 100000
 
     pre_train_steps = 10000 # steps of random action before training begins
     logdir = "./checkpoints/ddqn-cnn"
