@@ -28,6 +28,16 @@ def update_target_graph(from_scope, to_scope, tau=0.001):
 
     return op_holder
 
+def copy_target_graph(from_scope, to_scope):
+    from_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, from_scope)
+    to_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, to_scope)
+
+    op_holder = []
+    for from_v,to_v in zip(from_vars, to_vars):
+        op_holder.append(tf.assign(to_v, from_v))
+
+    return op_holder
+
 class QNetwork():
     def __init__(self,h_size,action_size, img_size=84, learning_rate=0.00025, frame_count=4):
         self.frame_in = tf.placeholder(tf.float32, [None, img_size * img_size * frame_count], name="frame_in")
@@ -201,14 +211,14 @@ if __name__=="__main__":
             target_qn = QNetwork(h_size, action_size)
 
         #update_qn_op = update_target_graph(scope_main, scope_target, tau)
-        copy_graph_op = update_target_graph(scope_main, scope_target, 1.0)
+        copy_graph_op = copy_target_graph(scope_main, scope_target)
 
     sv = tf.train.Supervisor(logdir=logdir, graph=graph, summary_op=None)
     e = e_start
     total_step = 0
 
     with sv.managed_session() as sess:
-        step_value,_ = sess.run([global_step, copy_graph_op])
+        step_value, _ = sess.run([global_step, copy_graph_op])
 
         for ep in range(total_episodes):
             frame_buffer = FrameBuffer(buffer_size=frame_count, frame_size=img_size*img_size)
@@ -239,7 +249,7 @@ if __name__=="__main__":
 
                 s1, reward, done, _ = env.step(act)
 
-                r2 = clip_reward_tan(reward)
+                r2 = clip_reward(reward)
                 s1_frame = process_frame(s1, last_frame)
                 last_frame = s1
 
