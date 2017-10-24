@@ -150,13 +150,17 @@ def clip_reward(r):
 
     return 0
 
+def clip_reward_tan(r):
+    return np.arctan(r)
+
 if __name__=="__main__":
     game_name = 'SpaceInvaders-v0'
     env = gym.make(game_name)
     game_name += '-dqn-cnn'
-    env.frameskip = 3
+    env.env.frameskip = 3
+    print("{} has skip-frame: {}".format(game_name, env.env.frameskip))
 
-    render = False
+    render = True
 
     batch_size = 32 # num of experience traces
     update_target_step = 10000
@@ -166,6 +170,7 @@ if __name__=="__main__":
     e_end = 0.1
     annel_steps  = 1000000 # steps from e_start to e_end
     total_episodes = 90000
+    exp_buffer_size = 50000
 
     pre_train_steps = 10000 # steps of random action before training begins
     logdir = "./checkpoints/dqn-cnn"
@@ -181,7 +186,7 @@ if __name__=="__main__":
     scope_target = "target_qn"
 
     e_delta = (e_start - e_end) / annel_steps
-    exp_buffer = ExperienceBuffer()
+    exp_buffer = ExperienceBuffer(buffer_size=exp_buffer_size)
 
     # build graph
     graph = tf.Graph()
@@ -216,60 +221,56 @@ if __name__=="__main__":
             last_act = 0
             t_ep_start = time.time()
 
-            last_frame = None
+            #last_frame = None
 
             while True:
                 if render:
                     env.render()
-                if total_step%skip_frame !=0:
-                    s1, reward, done, obs = env.step(last_act)
-                    last_frame = s1
-                else:
-                    # normal process
-                    begin_frames = frame_buffer.frames()
-                    act,_ = main_qn.predict_act(begin_frames, session=sess)
-                    act = act[0]
-                    if np.random.rand() < e or total_step<pre_train_steps:
-                        act = np.random.randint(0, action_size)
+                # normal process
+                begin_frames = frame_buffer.frames()
+                act,_ = main_qn.predict_act(begin_frames, session=sess)
+                act = act[0]
+                if np.random.rand() < e or total_step<pre_train_steps:
+                    act = np.random.randint(0, action_size)
 
-                    last_act = act
+                last_act = act
 
-                    s1, reward, done, obs = env.step(act)
-                    r2 = clip_reward(reward)
-                    s1_frame = process_frame(s1, last_frame)
-                    last_frame = s1
+                s1, reward, done, obs = env.step(act)
+                r2 = clip_reward_tan(reward)
+                s1_frame = process_frame(s1)
+                last_frame = s1
 
-                    frame_buffer.add(s1_frame)
-                    next_frames = frame_buffer.frames()
-                    exp_buffer.add(np.reshape(np.array([begin_frames, act, r2, next_frames, done]), [1,5]))
+                frame_buffer.add(s1_frame)
+                next_frames = frame_buffer.frames()
+                exp_buffer.add(np.reshape(np.array([begin_frames, act, r2, next_frames, done]), [1,5]))
 
-                    if total_step > pre_train_steps:
-                        if e > e_end:
-                            e -= e_delta
+                if total_step > pre_train_steps:
+                    if e > e_end:
+                        e -= e_delta
 
-                        if total_step % update_step == 0:
-                            # update model
-                            train_batch = exp_buffer.sample(batch_size)
+                    if total_step % update_step == 0:
+                        # update model
+                        train_batch = exp_buffer.sample(batch_size)
 
-                            pred_act, q_vals = target_qn.predict_act(np.vstack(train_batch[:, 3]), batch_size, sess)
+                        pred_act, q_vals = target_qn.predict_act(np.vstack(train_batch[:, 3]), batch_size, sess)
 
-                            end_multiplier = - (train_batch[:, 4] - 1)
-                            double_q = q_vals[range(batch_size),pred_act]
-                            target_q_val = train_batch[:, 2] + gamma * double_q * end_multiplier
+                        end_multiplier = - (train_batch[:, 4] - 1)
+                        double_q = q_vals[range(batch_size),pred_act]
+                        target_q_val = train_batch[:, 2] + gamma * double_q * end_multiplier
 
-                            in_frames = np.vstack(train_batch[:, 0])
-                            acts = train_batch[:,1]
-                            main_qn.update_nn(in_frames, target_q_val, acts, batch_size, sess, summ_writer, step_value)
-                            step_value = sess.run(inc_global_step)
-                            
-                        if total_step % update_target_step == 0:
-                            sess.run(update_target_op)
+                        in_frames = np.vstack(train_batch[:, 0])
+                        acts = train_batch[:,1]
+                        main_qn.update_nn(in_frames, target_q_val, acts, batch_size, sess, summ_writer, step_value)
+                        step_value = sess.run(inc_global_step)
 
                     s = s1
                     s_frame = s1_frame
 
                 ep_rewards.append(reward)
                 total_step += 1
+
+                if total_step % update_target_step == 0:
+                    sess.run(update_target_op)
 
                 if done:
                     disc_r = discounted_reward(ep_rewards, gamma)

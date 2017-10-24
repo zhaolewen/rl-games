@@ -168,7 +168,8 @@ if __name__=="__main__":
     game_name = 'SpaceInvaders-v0'
     env = gym.make(game_name)
     game_name += '-ddqn-cnn'
-    env.frameskip = 3
+    env.env.frameskip = 3
+    print("{} has skip-frame: {}".format(game_name, env.env.frameskip))
 
     render = False
 
@@ -181,7 +182,7 @@ if __name__=="__main__":
     annel_steps  = 1000000 # steps from e_start to e_end
     total_episodes = 90000
     update_step = 4
-    tau = 0.001
+    tau = 0.0001
     exp_buffer_size = 100000
 
     pre_train_steps = 50000 # steps of random action before training begins
