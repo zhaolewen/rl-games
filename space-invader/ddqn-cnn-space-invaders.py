@@ -60,11 +60,11 @@ class QNetwork():
 
             Q = tf.reduce_sum(tf.multiply(self.q_out, actions_onehot), axis=1)
 
-            td_error = tf.square(self.target_q - Q)
+            #td_error = tf.square(self.target_q - Q)
+            #loss = tf.reduce_mean(td_error)
+            loss = tf.losses.huber_loss(self.target_q,Q)
 
-            loss = tf.reduce_mean(td_error)
-
-        self.update = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(loss)
+        self.update = tf.train.RMSPropOptimizer(learning_rate=learning_rate, momentum=0.95).minimize(loss)
 
         with tf.name_scope("summary"):
             tf.summary.scalar("loss", loss)
@@ -225,54 +225,50 @@ if __name__=="__main__":
             while True:
                 if render:
                     env.render()
-                if total_step%skip_frame !=0:
-                    s1, reward, done, obs = env.step(last_act)
-                    last_frame = s1
-                else:
-                    # normal process
-                    begin_frames = frame_buffer.frames()
-                    act,_ = main_qn.predict_act(begin_frames, session=sess)
-                    act = act[0]
-                    if np.random.rand() < e or total_step<pre_train_steps:
-                        act = np.random.randint(0, action_size)
 
-                    last_act = act
+                begin_frames = frame_buffer.frames()
+                act,_ = main_qn.predict_act(begin_frames, session=sess)
+                act = act[0]
+                if np.random.rand() < e or total_step<pre_train_steps:
+                    act = np.random.randint(0, action_size)
 
-                    s1, reward, done, _ = env.step(act)
+                last_act = act
 
-                    r2 = clip_reward_tan(reward)
-                    s1_frame = process_frame(s1, last_frame)
-                    last_frame = s1
+                s1, reward, done, _ = env.step(act)
 
-                    frame_buffer.add(s1_frame)
-                    next_frames = frame_buffer.frames()
-                    exp_buffer.add(np.reshape(np.array([begin_frames, act, r2, next_frames, done]), [1,5]))
+                r2 = clip_reward_tan(reward)
+                s1_frame = process_frame(s1, last_frame)
+                last_frame = s1
 
-                    if total_step > pre_train_steps:
-                        if e > e_end:
-                            e -= e_delta
+                frame_buffer.add(s1_frame)
+                next_frames = frame_buffer.frames()
+                exp_buffer.add(np.reshape(np.array([begin_frames, act, r2, next_frames, done]), [1,5]))
 
-                        if total_step % update_step == 0:
-                            # update model
-                            train_batch = exp_buffer.sample(batch_size)
+                if total_step > pre_train_steps:
+                    if e > e_end:
+                        e -= e_delta
 
-                            pred_act, _ = main_qn.predict_act(np.vstack(train_batch[:, 3]), batch_size, sess)
-                            _, q_vals = target_qn.predict_act(np.vstack(train_batch[:, 3]), batch_size, sess)
+                    if total_step % update_step == 0:
+                        # update model
+                        train_batch = exp_buffer.sample(batch_size)
 
-                            end_multiplier = - (train_batch[:, 4] - 1)
-                            double_q = q_vals[range(batch_size),pred_act]
-                            target_q_val = train_batch[:, 2] + gamma * double_q * end_multiplier
+                        pred_act, _ = main_qn.predict_act(np.vstack(train_batch[:, 3]), batch_size, sess)
+                        _, q_vals = target_qn.predict_act(np.vstack(train_batch[:, 3]), batch_size, sess)
 
-                            in_frames = np.vstack(train_batch[:, 0])
-                            acts = train_batch[:,1]
-                            main_qn.update_nn(in_frames, target_q_val, acts, batch_size, sess, summ_writer, step_value)
-                            step_value = sess.run(inc_global_step)
+                        end_multiplier = - (train_batch[:, 4] - 1)
+                        double_q = q_vals[range(batch_size),pred_act]
+                        target_q_val = train_batch[:, 2] + gamma * double_q * end_multiplier
 
-                            # register rand prob
-                            summary = tf.Summary()
-                            summary.value.add(tag='rand_prob', simple_value=e)
-                            summ_writer.add_summary(summary, step_value)
-                            summ_writer.flush()
+                        in_frames = np.vstack(train_batch[:, 0])
+                        acts = train_batch[:,1]
+                        main_qn.update_nn(in_frames, target_q_val, acts, batch_size, sess, summ_writer, step_value)
+                        step_value = sess.run(inc_global_step)
+
+                        # register rand prob
+                        summary = tf.Summary()
+                        summary.value.add(tag='rand_prob', simple_value=e)
+                        summ_writer.add_summary(summary, step_value)
+                        summ_writer.flush()
 
                     s = s1
                     s_frame = s1_frame
