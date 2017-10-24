@@ -60,9 +60,9 @@ class QNetwork():
 
             Q = tf.reduce_sum(tf.multiply(self.q_out, actions_onehot), axis=1)
 
-            #td_error = tf.square(self.target_q - Q)
-            #loss = tf.reduce_mean(td_error)
-            loss = tf.losses.huber_loss(self.target_q,Q)
+            td_error = tf.square(self.target_q - Q)
+            loss = tf.reduce_mean(td_error)
+            #loss = tf.losses.huber_loss(self.target_q,Q)
 
         self.update = tf.train.RMSPropOptimizer(learning_rate=learning_rate, momentum=0.95).minimize(loss)
 
@@ -239,7 +239,7 @@ if __name__=="__main__":
 
                 s1, reward, done, _ = env.step(act)
 
-                r2 = clip_reward(reward)
+                r2 = clip_reward_tan(reward)
                 s1_frame = process_frame(s1, last_frame)
                 last_frame = s1
 
