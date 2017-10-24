@@ -239,7 +239,7 @@ if __name__=="__main__":
 
                 s1, reward, done, _ = env.step(act)
 
-                r2 = clip_reward_tan(reward)
+                r2 = clip_reward(reward)
                 s1_frame = process_frame(s1, last_frame)
                 last_frame = s1
 
