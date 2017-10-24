@@ -154,6 +154,7 @@ if __name__=="__main__":
     game_name = 'SpaceInvaders-v0'
     env = gym.make(game_name)
     game_name += '-dqn-cnn'
+    env.frameskip = 3
 
     render = False
 
