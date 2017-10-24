@@ -70,6 +70,7 @@ class QNetwork():
             tf.summary.scalar("loss", loss)
             tf.summary.scalar("mean_value", tf.reduce_mean(value))
             tf.summary.scalar("max_advantage", tf.reduce_max(advantage))
+            tf.summary.scalar("min_advantage", tf.reduce_min(advantage))
             tf.summary.scalar("mean_target_q", tf.reduce_mean(self.target_q))
             tf.summary.scalar("mean_pred_q", tf.reduce_mean(self.q_out))
 
