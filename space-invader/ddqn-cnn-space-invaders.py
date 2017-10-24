@@ -157,6 +157,7 @@ if __name__=="__main__":
     game_name = 'SpaceInvaders-v0'
     env = gym.make(game_name)
     game_name += '-ddqn-cnn'
+    env.frameskip = 4
 
     render = False
 
@@ -177,7 +178,6 @@ if __name__=="__main__":
 
     h_size = 512
     action_size = env.action_space.n
-    skip_frame = 4
     frame_count = 4
     img_size = 84
 
