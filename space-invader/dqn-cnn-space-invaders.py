@@ -171,7 +171,7 @@ if __name__=="__main__":
     e_end = 0.1
     annel_steps  = 1000000 # steps from e_start to e_end
     total_episodes = 90000
-    exp_buffer_size = 50000
+    exp_buffer_size = 90000
 
     pre_train_steps = 10000 # steps of random action before training begins
     logdir = "./checkpoints/dqn-cnn"
@@ -219,22 +219,19 @@ if __name__=="__main__":
             frame_buffer.add(s_frame)
 
             ep_rewards = []
-            last_act = 0
             t_ep_start = time.time()
-
-            #last_frame = None
 
             while True:
                 if render:
                     env.render()
                 # normal process
                 begin_frames = frame_buffer.frames()
-                act,_ = main_qn.predict_act(begin_frames, session=sess)
-                act = act[0]
+
                 if np.random.rand() < e or total_step<pre_train_steps:
                     act = np.random.randint(0, action_size)
-
-                last_act = act
+                else:
+                    act, _ = main_qn.predict_act(begin_frames, session=sess)
+                    act = act[0]
 
                 s1, reward, done, obs = env.step(act)
                 r2 = clip_reward_tan(reward)
@@ -266,6 +263,11 @@ if __name__=="__main__":
 
                     s = s1
                     s_frame = s1_frame
+                    # register rand prob
+                    summary = tf.Summary()
+                    summary.value.add(tag='rand_prob', simple_value=e)
+                    summ_writer.add_summary(summary, step_value)
+                    summ_writer.flush()
 
                 ep_rewards.append(reward)
                 total_step += 1
