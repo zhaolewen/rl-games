@@ -13,7 +13,7 @@ import gym
 def sendStatElastic(data, endpoint="http://35.187.182.237:9200/reinforce/games"):
     data['step_time'] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     try:
-        requests.post(endpoint, json=data)
+        r = requests.post(endpoint, json=data)
     except:
         print("Elasticsearch exception")
         #log.warning(r.text)
@@ -36,6 +36,7 @@ class FrameBuffer():
 
 def make_gym_env(name):
     env = gym.make(name)
+    env.env.frameskip=3
     return env
 
 def process_frame(f, last_f=None, height=84,width=84):
@@ -83,26 +84,30 @@ class ACNetwork():
         self.inputs = tf.placeholder(tf.float32, [None, im_size*im_size*frame_count], name="in_frames")
         img_in = tf.reshape(self.inputs, [-1, im_size, im_size, frame_count])
 
-        conv1 = slim.convolution2d(scope="conv1",inputs=img_in, num_outputs=32, kernel_size=[8,8], stride=[4, 4], padding="VALID", biases_initializer=None)
-        conv2 = slim.convolution2d(scope="conv2",inputs=conv1, num_outputs=64, kernel_size=[4, 4], stride=[2, 2], padding="VALID", biases_initializer=None)
-        conv3 = slim.convolution2d(scope="conv3",inputs=conv2, num_outputs=64, kernel_size=[3, 3], stride=[1, 1], padding="VALID", biases_initializer=None)
-        conv4 = slim.convolution2d(scope="conv4",inputs=conv3, num_outputs=h_size, kernel_size=[7, 7], stride=[1, 1], padding="VALID", biases_initializer=None)
+        #conv1 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv1",inputs=img_in, num_outputs=32, kernel_size=[8,8], stride=[4, 4], padding="VALID", biases_initializer=None)
+        #conv2 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv2",inputs=conv1, num_outputs=64, kernel_size=[4, 4], stride=[2, 2], padding="VALID", biases_initializer=None)
+        #conv3 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv3",inputs=conv2, num_outputs=64, kernel_size=[3, 3], stride=[1, 1], padding="VALID", biases_initializer=None)
+        #conv4 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv4",inputs=conv3, num_outputs=h_size, kernel_size=[7, 7], stride=[1, 1], padding="VALID", biases_initializer=None)
 
-        conv_flat = tf.reshape(slim.flatten(conv4), [-1, h_size])
+
+        conv1 = slim.conv2d(img_in, num_outputs=16, kernel_size=[8, 8], stride=[4, 4], padding="VALID",activation_fn=tf.nn.elu)
+        conv2 = slim.conv2d(conv1, num_outputs=32, kernel_size=[4, 4], stride=[2, 2], padding="VALID",activation_fn=tf.nn.elu)
+        hidden = slim.fully_connected(slim.flatten(conv2), h_size, activation_fn=tf.nn.elu)
 
         with tf.variable_scope("va_split"):
-            stream_a, stream_v = tf.split(conv_flat,2,axis=1)
-            w_a = tf.Variable(tf.random_normal([h_size//2, act_size]))
-            w_v = tf.Variable(tf.random_normal([h_size//2, 1]))
+            #stream_a, stream_v = tf.split(conv_flat,2,axis=1)
+            w_a = tf.Variable(tf.random_normal([h_size, act_size], stddev=0.1))
+            w_v = tf.Variable(tf.random_normal([h_size, 1], stddev=0.1))
 
-            advantage = tf.matmul(stream_a, w_a)
-            value = tf.matmul(stream_v, w_v)
+            advantage = tf.matmul(hidden, w_a)
+            self.value = tf.matmul(hidden, w_v)
 
         # salience = tf.gradients(advantage, img_in)
         with tf.variable_scope("predict"):
-            self.q_out = value + tf.subtract(advantage, tf.reduce_mean(advantage, axis=1, keep_dims=True))
-            self.pred = tf.argmax(self.q_out, axis=1)
+            #self.q_out = value + tf.subtract(advantage, tf.reduce_mean(advantage, axis=1, keep_dims=True))
+            self.pred = tf.argmax(advantage, axis=1)
             self.policy = tf.nn.softmax(advantage)
+            self.policy = tf.clip_by_value(self.policy, 1e-10,1.0)
 
 
         # master network up date by copying value
@@ -115,35 +120,41 @@ class ACNetwork():
             self.target_adv = tf.placeholder(tf.float32, [None],name="target_advantage")
 
             resp_outputs = tf.reduce_sum(self.policy * act_onehot, [1])
-            chosen_val = tf.reduce_sum(tf.multiply(self.q_out,act_onehot), axis=1)
-            value_loss = 0.5 * tf.reduce_sum(tf.square(self.target_v - chosen_val))
+            #chosen_val = tf.reduce_sum(tf.multiply(self.q_out,act_onehot), axis=1)
+            value_loss = tf.reduce_sum(tf.square(self.target_v - self.value))
 
             entropy = -tf.reduce_sum(self.policy * tf.log(self.policy))
             policy_loss = - tf.reduce_sum(tf.log(resp_outputs) * self.target_adv)
 
-            loss = 0.5 * value_loss + policy_loss - entropy * 0.01
+            loss = value_loss + policy_loss - entropy * 0.0001
 
             local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
             gradients = tf.gradients(loss, local_vars)
             var_norms = tf.global_norm(local_vars)
-            grads, grad_norms = tf.clip_by_global_norm(gradients, 40.0)
+            grads, grad_norms = tf.clip_by_global_norm(gradients, 10.0)
 
             master_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'master')
             self.train_op = trainer.apply_gradients(zip(grads, master_vars), global_step=global_step)
 
             with tf.name_scope("summary"):
-                tf.summary.scalar("loss", loss)
-                tf.summary.scalar("mean_value", tf.reduce_mean(value))
-                tf.summary.scalar("max_advantage", tf.reduce_max(advantage))
-                tf.summary.scalar("min_advantage", tf.reduce_min(advantage))
-                tf.summary.scalar("mean_target_q", tf.reduce_mean(self.target_v))
-                tf.summary.scalar("mean_pred_q", tf.reduce_mean(self.q_out))
+                s_loss = tf.summary.scalar("loss", loss)
+                s_val = tf.summary.scalar("mean_value", tf.reduce_mean(self.value))
+                s_max_adv = tf.summary.scalar("max_advantage", tf.reduce_max(advantage))
+                s_min_adv = tf.summary.scalar("min_advantage", tf.reduce_min(advantage))
+                s_tar_q = tf.summary.scalar("mean_target_q", tf.reduce_mean(self.target_v))
+                #s_pred_q = tf.summary.scalar("mean_pred_q", tf.reduce_mean(self.q_out))
 
-                self.summary_op = tf.summary.merge_all()
+                self.summary_op = tf.summary.merge([s_loss, s_val, s_max_adv, s_min_adv, s_tar_q])
 
+def get_exp_prob(step, max_step=1000000):
+    min_p = np.random.choice([0.1,0.01,0.5],1,p=[0.4,0.3,0.3])[0]
+    #min_p = 0.1
+    if step > max_step:
+        return min_p
+    return 1.0 - (1.0 - min_p)/max_step*step
 
 class Worker():
-    def __init__(self, act_size , name, trainer, game_name,e_max=1.0,e_min=0.1,e_steps=100000,global_step=None,summary_writer=None):
+    def __init__(self, act_size , name, trainer, game_name,global_step=None,summary_writer=None):
         self.name = str(name)
         self.trainer = trainer
         self.act_size = act_size
@@ -151,9 +162,6 @@ class Worker():
         with tf.variable_scope(self.name):
             self.local_ac = ACNetwork(act_size, self.name, trainer, global_step=global_step)
         self.game_name = game_name
-        self.e = e_max
-        self.e_min=0.1
-        self.e_delta = (e_max - e_min)/e_steps
 
         # copy values from master graph to local
         self.update_local_ops = update_target_graph('master', self.name)
@@ -168,6 +176,9 @@ class Worker():
         rewards = rollout[:,2]
         nxt_obs = rollout[:, 3]
         values = rollout[:, 5]
+
+        if bootstrap_val is None or np.isnan(bootstrap_val)==True:
+            bootstrap_val = 0
 
         reward_plus = np.asarray(rewards.tolist()+[bootstrap_val])
         disc_rew = discount_reward(reward_plus, gamma)[:-1]
@@ -184,13 +195,14 @@ class Worker():
             self.local_ac.target_adv:advantages,
         }
 
-        _ ,step = sess.run([self.local_ac.train_op,self.global_step], feed_dict=feed_dict)
-        #if self.summary_writer is not None:
-        #    self.summary_writer.add_summary(summ,step)
+        summ,_ ,step = sess.run([self.local_ac.summary_op, self.local_ac.train_op,self.global_step], feed_dict=feed_dict)
+        if self.summary_writer is not None:
+            self.summary_writer.add_summary(summ,step)
 
     def play(self, sess, coord):
         print("Starting worker {}".format(self.name))
-        env = gym.make(self.game_name)
+        env = make_gym_env(self.game_name)
+        total_step = 0
 
         with sess.as_default():
 
@@ -206,10 +218,12 @@ class Worker():
                 t_ep_start = time.time()
 
                 while True:
+                    total_step += 1
                     env.render()
                     pred = sess.run(self.local_ac.policy,feed_dict={self.local_ac.inputs: frame_buffer.frames()})
 
                     act = np.random.choice(range(self.act_size), p=pred[0])
+                    #act = pred[0]
                     s, reward, done, obs = env.step(act)
                     ep_score += reward
 
@@ -218,15 +232,15 @@ class Worker():
 
                     if done:
                         ep_count += 1
-                        print("Agent {} finished episode {} finished with total reward: {} in {} seconds".format(self.name,ep_count, ep_score,
-                                                                                               time.time() - t_ep_start))
-                        sendStatElastic({"score": ep_score,'ageng_name':self.name, 'game_name': 'ac3-SpaceInvaders-v0', 'episode': ep_count})
+                        print("Agent {} finished episode {} finished with total reward: {} in {} seconds, total step {}".format(self.name,ep_count, ep_score,
+                                                                                               time.time() - t_ep_start,total_step))
+                        sendStatElastic({"score": ep_score,'agent_name':self.name, 'game_name': 'ac3-SpaceInvaders-v0', 'episode': ep_count,'frame_count':total_step})
                         break
 
-    def work(self, gamma, sess, coord, max_ep_buffer_size=200, max_episode_count=10000):
+    def work(self, gamma, sess, coord, max_ep_buffer_size=8, max_episode_count=5000):
         print("Starting worker {}".format(self.name))
-        env = gym.make(self.game_name)
-
+        env = make_gym_env(self.game_name)
+        total_step = 0
 
         with sess.as_default():
 
@@ -245,10 +259,17 @@ class Worker():
                 t_ep_start = time.time()
 
                 while True:
+                    total_step += 1
+
                     begin_frames = frame_buffer.frames()
-                    pred, val = sess.run([self.local_ac.policy, self.local_ac.q_out],feed_dict={self.local_ac.inputs:begin_frames})
-                    val = val[0]
-                    act = np.random.choice(range(self.act_size),p=pred[0])
+                    pred, val = sess.run([self.local_ac.policy, self.local_ac.value],feed_dict={self.local_ac.inputs:begin_frames})
+                    val = val[0,0]
+                    e = get_exp_prob(total_step)
+                    if random.random() < e:
+                        act = np.random.choice(range(self.act_size))
+                    else:
+                        act = np.random.choice(range(self.act_size), p=pred[0])
+                        #act = pred[0]
                     s, reward, done, obs = env.step(act)
                     ep_score += reward
 
@@ -258,20 +279,18 @@ class Worker():
 
                     next_frames = frame_buffer.frames()
 
-                    episode_buffer.append([begin_frames, act, reward, next_frames, done, val[act]])
+                    episode_buffer.append([begin_frames, act, reward, next_frames, done, val])
 
                     if len(episode_buffer) >= max_ep_buffer_size and not done:
-                        pred,v_pred = sess.run([self.local_ac.pred, self.local_ac.q_out],
-                                          feed_dict={self.local_ac.inputs:next_frames})
-                        v_pred = v_pred[0]
-                        self.train(episode_buffer, gamma,bootstrap_val=v_pred[pred], sess=sess)
+                        v_pred = sess.run(self.local_ac.value,feed_dict={self.local_ac.inputs:next_frames})
+                        self.train(episode_buffer, gamma,bootstrap_val=v_pred[0,0], sess=sess)
                         episode_buffer = []
                         sess.run(self.update_local_ops)
 
                     if done:
                         ep_count += 1
-                        print("Agent {} finished episode {} finished with total reward: {} in {} seconds".format(self.name,ep_count, ep_score, time.time()-t_ep_start))
-                        sendStatElastic({"score": ep_score,'game_name': 'ac3-SpaceInvaders-v0','episode':ep_count})
+                        print("Agent {} finished episode {} finished with total reward: {} in {} seconds, total step {}".format(self.name,ep_count, ep_score, time.time()-t_ep_start, total_step))
+                        sendStatElastic({"score": ep_score,'game_name': 'ac3-SpaceInvaders-v0','episode':ep_count,'rand_e_prob':100.0*e,'agent_name':self.name,'frame_count':total_step})
                         break
 
                 if len(episode_buffer) != 0:
@@ -287,13 +306,17 @@ if __name__=="__main__":
     action_count = 6
     gamma = 0.99
     #num_workers = multiprocessing.cpu_count() - 2
-    num_workers = 6
+    num_workers = 12
+    train_step = 5
     print("Running with {} workers".format(num_workers))
 
     graph = tf.Graph()
     with graph.as_default():
         global_step = tf.get_variable("global_step",(),tf.int64,initializer=tf.zeros_initializer())
-        trainer = tf.train.AdamOptimizer(learning_rate=1e-4)
+        #trainer = tf.train.AdamOptimizer(learning_rate=1e-3)
+        trainer = tf.train.RMSPropOptimizer(learning_rate=1e-4, momentum=0.9, decay=0.99)
+        #trainer = tf.train.MomentumOptimizer(learning_rate=1e-3, momentum=0.95)
+        #trainer = tf.train.AdadeltaOptimizer(learning_rate=1e-3)
 
         #with tf.variable_scope("master"):
         master_worker = Worker(action_count,"master",trainer=None, game_name=game_name)
@@ -317,7 +340,7 @@ if __name__=="__main__":
 
         worker_threads = []
         for wk in workers:
-            work = lambda : wk.work(gamma, sess, coord, max_episode_count=max_episode_len)
+            work = lambda : wk.work(gamma, sess, coord, max_episode_count=max_episode_len, max_ep_buffer_size=train_step)
             t = threading.Thread(target=(work))
 
             t.start()
