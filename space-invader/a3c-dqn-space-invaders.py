@@ -61,6 +61,12 @@ def clip_reward_tan(r):
 def discount_reward(rs, gamma):
     return signal.lfilter([1], [1, -gamma], rs[::-1], axis=0)[::-1]
 
+def exp_coeff(vs, gamma):
+    for k in range(len(vs)):
+        vs[k] *= gamma ** (k+1)
+
+    return vs
+
 def update_target_graph(from_scope, to_scope):
     from_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, from_scope)
     to_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, to_scope)
@@ -90,9 +96,9 @@ class ACNetwork():
         #conv4 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv4",inputs=conv3, num_outputs=h_size, kernel_size=[7, 7], stride=[1, 1], padding="VALID", biases_initializer=None)
 
 
-        conv1 = slim.conv2d(img_in, num_outputs=16, kernel_size=[8, 8], stride=[4, 4], padding="VALID",activation_fn=tf.nn.elu)
-        conv2 = slim.conv2d(conv1, num_outputs=32, kernel_size=[4, 4], stride=[2, 2], padding="VALID",activation_fn=tf.nn.elu)
-        hidden = slim.fully_connected(slim.flatten(conv2), h_size, activation_fn=tf.nn.elu)
+        conv1 = slim.conv2d(img_in, num_outputs=16, kernel_size=[8, 8], stride=[4, 4], padding="VALID",activation_fn=tf.nn.relu)
+        conv2 = slim.conv2d(conv1, num_outputs=32, kernel_size=[4, 4], stride=[2, 2], padding="VALID",activation_fn=tf.nn.relu)
+        hidden = slim.fully_connected(slim.flatten(conv2), h_size, activation_fn=tf.nn.relu)
 
         with tf.variable_scope("va_split"):
             #stream_a, stream_v = tf.split(conv_flat,2,axis=1)
@@ -126,7 +132,7 @@ class ACNetwork():
             entropy = -tf.reduce_sum(self.policy * tf.log(self.policy))
             policy_loss = - tf.reduce_sum(tf.log(resp_outputs) * self.target_adv)
 
-            loss = value_loss + policy_loss - entropy * 0.0001
+            loss = value_loss + policy_loss - entropy * 0.001
 
             local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
             gradients = tf.gradients(loss, local_vars)
@@ -185,8 +191,9 @@ class Worker():
 
         value_plus = np.asarray(values.tolist()+[bootstrap_val])
         #print(value_plus)
-        advantages = rewards + gamma *value_plus[1:] - value_plus[:-1]
-        advantages = discount_reward(advantages, gamma)
+        #advantages = disc_rew + exp_coeff(value_plus[1:], gamma) - value_plus[:-1]
+        #advantages = disc_rew + gamma * value_plus[1:] - value_plus[:-1]
+        advantages = disc_rew - value_plus[:-1]
 
         feed_dict = {
             self.local_ac.inputs:np.vstack(obs),
@@ -258,13 +265,15 @@ class Worker():
                 ep_score = 0.0
                 t_ep_start = time.time()
 
+                e = get_exp_prob(total_step)
+
                 while True:
                     total_step += 1
 
                     begin_frames = frame_buffer.frames()
                     pred, val = sess.run([self.local_ac.policy, self.local_ac.value],feed_dict={self.local_ac.inputs:begin_frames})
                     val = val[0,0]
-                    e = get_exp_prob(total_step)
+                    #e = get_exp_prob(total_step)
                     if random.random() < e:
                         act = np.random.choice(range(self.act_size))
                     else:
@@ -306,7 +315,7 @@ if __name__=="__main__":
     action_count = 6
     gamma = 0.99
     #num_workers = multiprocessing.cpu_count() - 2
-    num_workers = 12
+    num_workers = 8
     train_step = 5
     print("Running with {} workers".format(num_workers))
 
