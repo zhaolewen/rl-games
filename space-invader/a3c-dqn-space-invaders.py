@@ -90,15 +90,16 @@ class ACNetwork():
         self.inputs = tf.placeholder(tf.float32, [None, im_size*im_size*frame_count], name="in_frames")
         img_in = tf.reshape(self.inputs, [-1, im_size, im_size, frame_count])
 
-        #conv1 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv1",inputs=img_in, num_outputs=32, kernel_size=[8,8], stride=[4, 4], padding="VALID", biases_initializer=None)
-        #conv2 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv2",inputs=conv1, num_outputs=64, kernel_size=[4, 4], stride=[2, 2], padding="VALID", biases_initializer=None)
-        #conv3 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv3",inputs=conv2, num_outputs=64, kernel_size=[3, 3], stride=[1, 1], padding="VALID", biases_initializer=None)
-        #conv4 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv4",inputs=conv3, num_outputs=h_size, kernel_size=[7, 7], stride=[1, 1], padding="VALID", biases_initializer=None)
+        conv1 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv1",inputs=img_in, num_outputs=32, kernel_size=[8,8], stride=[4, 4], padding="VALID", biases_initializer=None)
+        conv2 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv2",inputs=conv1, num_outputs=64, kernel_size=[4, 4], stride=[2, 2], padding="VALID", biases_initializer=None)
+        conv3 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv3",inputs=conv2, num_outputs=64, kernel_size=[3, 3], stride=[1, 1], padding="VALID", biases_initializer=None)
+        conv4 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv4",inputs=conv3, num_outputs=h_size, kernel_size=[7, 7], stride=[1, 1], padding="VALID", biases_initializer=None)
 
 
-        conv1 = slim.conv2d(img_in, num_outputs=16, kernel_size=[8, 8], stride=[4, 4], padding="VALID",activation_fn=tf.nn.relu)
-        conv2 = slim.conv2d(conv1, num_outputs=32, kernel_size=[4, 4], stride=[2, 2], padding="VALID",activation_fn=tf.nn.relu)
-        hidden = slim.fully_connected(slim.flatten(conv2), h_size, activation_fn=tf.nn.relu)
+        #conv1 = slim.conv2d(img_in, num_outputs=16, kernel_size=[8, 8], stride=[4, 4], padding="VALID",activation_fn=tf.nn.relu)
+        #conv2 = slim.conv2d(conv1, num_outputs=32, kernel_size=[4, 4], stride=[2, 2], padding="VALID",activation_fn=tf.nn.relu)
+        #hidden = slim.fully_connected(slim.flatten(conv4), h_size, activation_fn=tf.nn.relu)
+        hidden = slim.flatten(conv4)
 
         with tf.variable_scope("va_split"):
             #stream_a, stream_v = tf.split(conv_flat,2,axis=1)
@@ -132,11 +133,11 @@ class ACNetwork():
             entropy = -tf.reduce_sum(self.policy * tf.log(self.policy))
             policy_loss = - tf.reduce_sum(tf.log(resp_outputs) * self.target_adv)
 
-            loss = value_loss + policy_loss - entropy * 0.001
+            loss = value_loss + policy_loss - entropy * 0.01
 
             local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
             gradients = tf.gradients(loss, local_vars)
-            var_norms = tf.global_norm(local_vars)
+            #var_norms = tf.global_norm(local_vars)
             grads, grad_norms = tf.clip_by_global_norm(gradients, 10.0)
 
             master_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'master')
@@ -189,11 +190,11 @@ class Worker():
         reward_plus = np.asarray(rewards.tolist()+[bootstrap_val])
         disc_rew = discount_reward(reward_plus, gamma)[:-1]
 
-        value_plus = np.asarray(values.tolist()+[bootstrap_val])
+        #value_plus = np.asarray(values.tolist()+[bootstrap_val])
         #print(value_plus)
         #advantages = disc_rew + exp_coeff(value_plus[1:], gamma) - value_plus[:-1]
         #advantages = disc_rew + gamma * value_plus[1:] - value_plus[:-1]
-        advantages = disc_rew - value_plus[:-1]
+        advantages = disc_rew - values
 
         feed_dict = {
             self.local_ac.inputs:np.vstack(obs),
@@ -274,10 +275,10 @@ class Worker():
                     pred, val = sess.run([self.local_ac.policy, self.local_ac.value],feed_dict={self.local_ac.inputs:begin_frames})
                     val = val[0,0]
                     #e = get_exp_prob(total_step)
-                    if random.random() < e:
-                        act = np.random.choice(range(self.act_size))
-                    else:
-                        act = np.random.choice(range(self.act_size), p=pred[0])
+                    #if random.random() < e:
+                    #    act = np.random.choice(range(self.act_size))
+                    #else:
+                    act = np.random.choice(range(self.act_size), p=pred[0])
                         #act = pred[0]
                     s, reward, done, obs = env.step(act)
                     ep_score += reward
@@ -321,9 +322,9 @@ if __name__=="__main__":
 
     graph = tf.Graph()
     with graph.as_default():
-        global_step = tf.get_variable("global_step",(),tf.int64,initializer=tf.zeros_initializer())
+        global_step = tf.get_variable("global_step",(),tf.int64,initializer=tf.zeros_initializer(), trainable=False)
         #trainer = tf.train.AdamOptimizer(learning_rate=1e-3)
-        trainer = tf.train.RMSPropOptimizer(learning_rate=1e-4, momentum=0.9, decay=0.99)
+        trainer = tf.train.RMSPropOptimizer(learning_rate=0.00025, momentum=0.0, decay=0.99, epsilon=1e-6)
         #trainer = tf.train.MomentumOptimizer(learning_rate=1e-3, momentum=0.95)
         #trainer = tf.train.AdadeltaOptimizer(learning_rate=1e-3)
 
