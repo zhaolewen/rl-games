@@ -9,6 +9,7 @@ import threading
 import scipy.signal as signal
 import requests
 import gym
+import tensorflow.contrib.layers as layers
 
 def sendStatElastic(data, endpoint="http://35.187.182.237:9200/reinforce/games"):
     data['step_time'] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -90,24 +91,28 @@ class ACNetwork():
         self.inputs = tf.placeholder(tf.float32, [None, im_size*im_size*frame_count], name="in_frames")
         img_in = tf.reshape(self.inputs, [-1, im_size, im_size, frame_count])
 
-        conv1 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv1",inputs=img_in, num_outputs=32, kernel_size=[8,8], stride=[4, 4], padding="VALID", biases_initializer=None)
-        conv2 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv2",inputs=conv1, num_outputs=64, kernel_size=[4, 4], stride=[2, 2], padding="VALID", biases_initializer=None)
-        conv3 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv3",inputs=conv2, num_outputs=64, kernel_size=[3, 3], stride=[1, 1], padding="VALID", biases_initializer=None)
-        conv4 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv4",inputs=conv3, num_outputs=h_size, kernel_size=[7, 7], stride=[1, 1], padding="VALID", biases_initializer=None)
-
+        #conv1 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv1",inputs=img_in, num_outputs=32, kernel_size=[8,8], stride=[4, 4], padding="VALID", biases_initializer=None)
+        #conv2 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv2",inputs=conv1, num_outputs=64, kernel_size=[4, 4], stride=[2, 2], padding="VALID", biases_initializer=None)
+        #conv3 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv3",inputs=conv2, num_outputs=64, kernel_size=[3, 3], stride=[1, 1], padding="VALID", biases_initializer=None)
+        #conv4 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv4",inputs=conv3, num_outputs=h_size, kernel_size=[7, 7], stride=[1, 1], padding="VALID", biases_initializer=None)
+        conv1 = layers.conv2d(img_in, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID")
+        pool1 = layers.max_pool2d(conv1, kernel_size=[2,2], stride=2)
+        conv2 = layers.conv2d(pool1, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID")
+        pool2 = layers.max_pool2d(conv2, kernel_size=[2,2], stride=2)
+        conv3 = layers.conv2d(pool2, num_outputs=64, kernel_size=[4,4], stride=1, padding="VALID")
+        pool3 = layers.max_pool2d(conv3, kernel_size=[2,2], stride=2)
+        conv4 = layers.conv2d(pool3, num_outputs=64, kernel_size=3, stride=1, padding="VALID")
+        pool4 = layers.max_pool2d(conv4, kernel_size=[2,2], stride=2)
+        hidden = layers.fully_connected(layers.flatten(pool4), h_size)
 
         #conv1 = slim.conv2d(img_in, num_outputs=16, kernel_size=[8, 8], stride=[4, 4], padding="VALID",activation_fn=tf.nn.relu)
         #conv2 = slim.conv2d(conv1, num_outputs=32, kernel_size=[4, 4], stride=[2, 2], padding="VALID",activation_fn=tf.nn.relu)
-        #hidden = slim.fully_connected(slim.flatten(conv4), h_size, activation_fn=tf.nn.relu)
-        hidden = slim.flatten(conv4)
+        #hidden = slim.fully_connected(slim.flatten(conv2), h_size)
+        #hidden = slim.flatten(conv4)
 
         with tf.variable_scope("va_split"):
-            #stream_a, stream_v = tf.split(conv_flat,2,axis=1)
-            w_a = tf.Variable(tf.random_normal([h_size, act_size], stddev=0.1))
-            w_v = tf.Variable(tf.random_normal([h_size, 1], stddev=0.1))
-
-            advantage = tf.matmul(hidden, w_a)
-            self.value = tf.matmul(hidden, w_v)
+            advantage = slim.fully_connected(hidden, act_size, activation_fn=None)
+            self.value = slim.fully_connected(hidden, 1, activation_fn=None)
 
         # salience = tf.gradients(advantage, img_in)
         with tf.variable_scope("predict"):
@@ -131,7 +136,7 @@ class ACNetwork():
             value_loss = tf.reduce_sum(tf.square(self.target_v - self.value))
 
             entropy = -tf.reduce_sum(self.policy * tf.log(self.policy))
-            policy_loss = - tf.reduce_sum(tf.log(resp_outputs) * self.target_adv)
+            policy_loss = - tf.reduce_mean(tf.log(resp_outputs) * self.target_adv)
 
             loss = value_loss + policy_loss - entropy * 0.01
 
