@@ -95,24 +95,30 @@ class ACNetwork():
         #conv2 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv2",inputs=conv1, num_outputs=64, kernel_size=[4, 4], stride=[2, 2], padding="VALID", biases_initializer=None)
         #conv3 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv3",inputs=conv2, num_outputs=64, kernel_size=[3, 3], stride=[1, 1], padding="VALID", biases_initializer=None)
         #conv4 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv4",inputs=conv3, num_outputs=h_size, kernel_size=[7, 7], stride=[1, 1], padding="VALID", biases_initializer=None)
-        conv1 = layers.conv2d(img_in, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID")
-        pool1 = layers.max_pool2d(conv1, kernel_size=[2,2], stride=2)
-        conv2 = layers.conv2d(pool1, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID")
-        pool2 = layers.max_pool2d(conv2, kernel_size=[2,2], stride=2)
-        conv3 = layers.conv2d(pool2, num_outputs=64, kernel_size=[4,4], stride=1, padding="VALID")
-        pool3 = layers.max_pool2d(conv3, kernel_size=[2,2], stride=2)
-        conv4 = layers.conv2d(pool3, num_outputs=64, kernel_size=3, stride=1, padding="VALID")
-        pool4 = layers.max_pool2d(conv4, kernel_size=[2,2], stride=2)
-        hidden = layers.fully_connected(layers.flatten(pool4), h_size)
 
-        #conv1 = slim.conv2d(img_in, num_outputs=16, kernel_size=[8, 8], stride=[4, 4], padding="VALID",activation_fn=tf.nn.relu)
-        #conv2 = slim.conv2d(conv1, num_outputs=32, kernel_size=[4, 4], stride=[2, 2], padding="VALID",activation_fn=tf.nn.relu)
-        #hidden = slim.fully_connected(slim.flatten(conv2), h_size)
+        with tf.name_scope("conv"):
+            conv1 = layers.conv2d(img_in, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID")
+            pool1 = layers.max_pool2d(conv1, kernel_size=[2,2], stride=2)
+            pool1 = tf.nn.relu(pool1)
+            conv2 = layers.conv2d(pool1, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID")
+            pool2 = layers.max_pool2d(conv2, kernel_size=[2,2], stride=2)
+            pool2 = tf.nn.relu(pool2)
+            conv3 = layers.conv2d(pool2, num_outputs=64, kernel_size=[4,4], stride=1, padding="VALID")
+            pool3 = layers.max_pool2d(conv3, kernel_size=[2,2], stride=2)
+            pool3 = tf.nn.relu(pool3)
+            conv4 = layers.conv2d(pool3, num_outputs=64, kernel_size=3, stride=1, padding="VALID")
+            pool4 = layers.max_pool2d(conv4, kernel_size=[2,2], stride=2)
+            pool4 = tf.nn.relu(pool4)
+            hidden = layers.fully_connected(layers.flatten(pool4), h_size)
+
+            #conv1 = slim.conv2d(img_in, num_outputs=16, kernel_size=[8, 8], stride=[4, 4], padding="VALID",activation_fn=tf.nn.relu)
+            #conv2 = slim.conv2d(conv1, num_outputs=32, kernel_size=[4, 4], stride=[2, 2], padding="VALID",activation_fn=tf.nn.relu)
+            #hidden = slim.fully_connected(slim.flatten(conv2), h_size)
         #hidden = slim.flatten(conv4)
 
         with tf.variable_scope("va_split"):
-            advantage = slim.fully_connected(hidden, act_size, activation_fn=None)
-            self.value = slim.fully_connected(hidden, 1, activation_fn=None)
+            advantage = slim.fully_connected(hidden, act_size, activation_fn=None, weights_initializer=normalized_columns_initializer(std=0.01), biases_initializer=None)
+            self.value = slim.fully_connected(hidden, 1, activation_fn=None, weights_initializer=normalized_columns_initializer(std=1.0), biases_initializer=None)
 
         # salience = tf.gradients(advantage, img_in)
         with tf.variable_scope("predict"):
@@ -132,13 +138,12 @@ class ACNetwork():
             self.target_adv = tf.placeholder(tf.float32, [None],name="target_advantage")
 
             resp_outputs = tf.reduce_sum(self.policy * act_onehot, [1])
-            #chosen_val = tf.reduce_sum(tf.multiply(self.q_out,act_onehot), axis=1)
             value_loss = tf.reduce_sum(tf.square(self.target_v - self.value))
 
             entropy = -tf.reduce_sum(self.policy * tf.log(self.policy))
-            policy_loss = - tf.reduce_mean(tf.log(resp_outputs) * self.target_adv)
+            policy_loss = - tf.reduce_sum(tf.log(resp_outputs) * self.target_adv)
 
-            loss = value_loss + policy_loss - entropy * 0.01
+            loss = 0.25 * value_loss + policy_loss - entropy * 0.01
 
             local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
             gradients = tf.gradients(loss, local_vars)
@@ -234,10 +239,10 @@ class Worker():
                 while True:
                     total_step += 1
                     env.render()
-                    pred = sess.run(self.local_ac.policy,feed_dict={self.local_ac.inputs: frame_buffer.frames()})
+                    pred = sess.run(self.local_ac.pred,feed_dict={self.local_ac.inputs: frame_buffer.frames()})
 
-                    act = np.random.choice(range(self.act_size), p=pred[0])
-                    #act = pred[0]
+                    #act = np.random.choice(range(self.act_size), p=pred[0])
+                    act = pred[0]
                     s, reward, done, obs = env.step(act)
                     ep_score += reward
 
@@ -323,16 +328,16 @@ if __name__=="__main__":
     gamma = 0.99
     #num_workers = multiprocessing.cpu_count() - 2
     num_workers = 8
-    train_step = 5
+    train_step = 8
     print("Running with {} workers".format(num_workers))
 
     graph = tf.Graph()
     with graph.as_default():
         global_step = tf.get_variable("global_step",(),tf.int64,initializer=tf.zeros_initializer(), trainable=False)
         #trainer = tf.train.AdamOptimizer(learning_rate=1e-3)
-        trainer = tf.train.RMSPropOptimizer(learning_rate=0.00025, momentum=0.0, decay=0.99, epsilon=1e-6)
+        #trainer = tf.train.RMSPropOptimizer(learning_rate=0.00025, momentum=0.0, decay=0.99, epsilon=1e-6)
         #trainer = tf.train.MomentumOptimizer(learning_rate=1e-3, momentum=0.95)
-        #trainer = tf.train.AdadeltaOptimizer(learning_rate=1e-3)
+        trainer = tf.train.AdadeltaOptimizer(learning_rate=1e-4)
 
         #with tf.variable_scope("master"):
         master_worker = Worker(action_count,"master",trainer=None, game_name=game_name)
