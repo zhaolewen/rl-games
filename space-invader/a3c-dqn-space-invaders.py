@@ -216,7 +216,7 @@ class Worker():
         if self.summary_writer is not None:
             self.summary_writer.add_summary(summ,step)
 
-    def play(self, sess, coord):
+    def play(self, sess, coord, render=False):
         print("Starting worker {}".format(self.name))
         env = make_gym_env(self.game_name)
         total_step = 0
@@ -236,7 +236,8 @@ class Worker():
 
                 while True:
                     total_step += 1
-                    env.render()
+                    if render:
+                        env.render()
                     pred = sess.run(self.local_ac.policy,feed_dict={self.local_ac.inputs: frame_buffer.frames()})
 
                     act = np.random.choice(range(self.act_size), p=pred[0])
