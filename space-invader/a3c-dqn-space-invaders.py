@@ -97,24 +97,24 @@ class ACNetwork():
         #conv4 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv4",inputs=conv3, num_outputs=h_size, kernel_size=[7, 7], stride=[1, 1], padding="VALID", biases_initializer=None)
 
         with tf.name_scope("conv"):
-            conv1 = layers.conv2d(img_in, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
-            pool1 = layers.max_pool2d(conv1, kernel_size=[2,2], stride=2)
-            conv2 = layers.conv2d(pool1, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
-            pool2 = layers.max_pool2d(conv2, kernel_size=[2,2], stride=2)
-            conv3 = layers.conv2d(pool2, num_outputs=64, kernel_size=[4,4], stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
-            pool3 = layers.max_pool2d(conv3, kernel_size=[2,2], stride=2)
-            conv4 = layers.conv2d(pool3, num_outputs=64, kernel_size=3, stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
-            pool4 = layers.max_pool2d(conv4, kernel_size=[2,2], stride=2)
-            hidden = layers.fully_connected(layers.flatten(pool4), h_size, weights_initializer=layers.xavier_initializer())
+            # conv1 = layers.conv2d(img_in, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
+            # pool1 = layers.max_pool2d(conv1, kernel_size=[2,2], stride=2)
+            # conv2 = layers.conv2d(pool1, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
+            # pool2 = layers.max_pool2d(conv2, kernel_size=[2,2], stride=2)
+            # conv3 = layers.conv2d(pool2, num_outputs=64, kernel_size=[4,4], stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
+            # pool3 = layers.max_pool2d(conv3, kernel_size=[2,2], stride=2)
+            # conv4 = layers.conv2d(pool3, num_outputs=64, kernel_size=3, stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
+            # pool4 = layers.max_pool2d(conv4, kernel_size=[2,2], stride=2)
+            # hidden = layers.fully_connected(layers.flatten(pool4), h_size, weights_initializer=layers.xavier_initializer())
 
-            # conv1 = slim.conv2d(img_in, num_outputs=16, kernel_size=[8, 8], stride=[4, 4], padding="VALID", weights_initializer=layers.xavier_initializer())
-            # conv2 = slim.conv2d(conv1, num_outputs=32, kernel_size=[4, 4], stride=[2, 2], padding="VALID", weights_initializer=layers.xavier_initializer())
-            # hidden = slim.fully_connected(slim.flatten(conv2), h_size, weights_initializer=layers.xavier_initializer())
+            conv1 = layers.conv2d(img_in, num_outputs=16, kernel_size=[8, 8], stride=[4, 4])
+            conv2 = layers.conv2d(conv1, num_outputs=32, kernel_size=[4, 4], stride=[2, 2])
+            hidden = layers.fully_connected(layers.flatten(conv2), h_size)
         #hidden = slim.flatten(conv4)
 
         with tf.variable_scope("va_split"):
-            advantage = slim.fully_connected(hidden, act_size, activation_fn=None, weights_initializer=normalized_columns_initializer(std=0.01), biases_initializer=None)
-            self.value = slim.fully_connected(hidden, 1, activation_fn=None, weights_initializer=normalized_columns_initializer(std=1.0), biases_initializer=None)
+            advantage = slim.fully_connected(hidden, act_size, activation_fn=None, weights_initializer=normalized_columns_initializer(std=0.01))
+            self.value = slim.fully_connected(hidden, 1, activation_fn=None, weights_initializer=normalized_columns_initializer(std=1.0))
 
         # salience = tf.gradients(advantage, img_in)
         with tf.variable_scope("predict"):
@@ -144,7 +144,7 @@ class ACNetwork():
             local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
             gradients = tf.gradients(loss, local_vars)
             #var_norms = tf.global_norm(local_vars)
-            grads, grad_norms = tf.clip_by_global_norm(gradients, 10.0)
+            grads, grad_norms = tf.clip_by_global_norm(gradients, 5.0)
 
             master_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'master')
             if trainer == None:
@@ -326,8 +326,8 @@ if __name__=="__main__":
     action_count = 6
     gamma = 0.99
     #num_workers = multiprocessing.cpu_count() - 2
-    num_workers = 8
-    train_step = 8
+    num_workers = 16
+    train_step = 5
     print("Running with {} workers".format(num_workers))
 
     graph = tf.Graph()
