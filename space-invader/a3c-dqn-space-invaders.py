@@ -99,21 +99,17 @@ class ACNetwork():
         with tf.name_scope("conv"):
             conv1 = layers.conv2d(img_in, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID")
             pool1 = layers.max_pool2d(conv1, kernel_size=[2,2], stride=2)
-            pool1 = tf.nn.relu(pool1)
             conv2 = layers.conv2d(pool1, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID")
             pool2 = layers.max_pool2d(conv2, kernel_size=[2,2], stride=2)
-            pool2 = tf.nn.relu(pool2)
             conv3 = layers.conv2d(pool2, num_outputs=64, kernel_size=[4,4], stride=1, padding="VALID")
             pool3 = layers.max_pool2d(conv3, kernel_size=[2,2], stride=2)
-            pool3 = tf.nn.relu(pool3)
             conv4 = layers.conv2d(pool3, num_outputs=64, kernel_size=3, stride=1, padding="VALID")
             pool4 = layers.max_pool2d(conv4, kernel_size=[2,2], stride=2)
-            pool4 = tf.nn.relu(pool4)
             hidden = layers.fully_connected(layers.flatten(pool4), h_size)
 
-            #conv1 = slim.conv2d(img_in, num_outputs=16, kernel_size=[8, 8], stride=[4, 4], padding="VALID",activation_fn=tf.nn.relu)
-            #conv2 = slim.conv2d(conv1, num_outputs=32, kernel_size=[4, 4], stride=[2, 2], padding="VALID",activation_fn=tf.nn.relu)
-            #hidden = slim.fully_connected(slim.flatten(conv2), h_size)
+            # conv1 = slim.conv2d(img_in, num_outputs=16, kernel_size=[8, 8], stride=[4, 4], padding="VALID",activation_fn=tf.nn.relu)
+            # conv2 = slim.conv2d(conv1, num_outputs=32, kernel_size=[4, 4], stride=[2, 2], padding="VALID",activation_fn=tf.nn.relu)
+            # hidden = slim.fully_connected(slim.flatten(conv2), h_size)
         #hidden = slim.flatten(conv4)
 
         with tf.variable_scope("va_split"):
@@ -151,6 +147,8 @@ class ACNetwork():
             grads, grad_norms = tf.clip_by_global_norm(gradients, 10.0)
 
             master_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'master')
+            if trainer == None:
+                trainer = tf.train.RMSPropOptimizer(learning_rate=0.00025, momentum=0.0, decay=0.99, epsilon=1e-6)
             self.train_op = trainer.apply_gradients(zip(grads, master_vars), global_step=global_step)
 
             with tf.name_scope("summary"):
@@ -239,10 +237,10 @@ class Worker():
                 while True:
                     total_step += 1
                     env.render()
-                    pred = sess.run(self.local_ac.pred,feed_dict={self.local_ac.inputs: frame_buffer.frames()})
+                    pred = sess.run(self.local_ac.policy,feed_dict={self.local_ac.inputs: frame_buffer.frames()})
 
-                    #act = np.random.choice(range(self.act_size), p=pred[0])
-                    act = pred[0]
+                    act = np.random.choice(range(self.act_size), p=pred[0])
+                    #act = pred[0]
                     s, reward, done, obs = env.step(act)
                     ep_score += reward
 
@@ -253,7 +251,7 @@ class Worker():
                         ep_count += 1
                         print("Agent {} finished episode {} finished with total reward: {} in {} seconds, total step {}".format(self.name,ep_count, ep_score,
                                                                                                time.time() - t_ep_start,total_step))
-                        sendStatElastic({"score": ep_score,'agent_name':self.name, 'game_name': 'ac3-SpaceInvaders-v0', 'episode': ep_count,'frame_count':total_step})
+                        sendStatElastic({"score": ep_score,'agent_name':self.name, 'game_name': 'ac3-gpu-SpaceInvaders-v0', 'episode': ep_count,'frame_count':total_step})
                         break
 
     def work(self, gamma, sess, coord, max_ep_buffer_size=8, max_episode_count=5000):
@@ -311,7 +309,7 @@ class Worker():
                     if done:
                         ep_count += 1
                         print("Agent {} finished episode {} finished with total reward: {} in {} seconds, total step {}".format(self.name,ep_count, ep_score, time.time()-t_ep_start, total_step))
-                        sendStatElastic({"score": ep_score,'game_name': 'ac3-SpaceInvaders-v0','episode':ep_count,'rand_e_prob':100.0*e,'agent_name':self.name,'frame_count':total_step})
+                        sendStatElastic({"score": ep_score,'game_name': 'ac3-gpu-SpaceInvaders-v0','episode':ep_count,'rand_e_prob':100.0*e,'agent_name':self.name,'frame_count':total_step})
                         break
 
                 if len(episode_buffer) != 0:
@@ -337,7 +335,8 @@ if __name__=="__main__":
         #trainer = tf.train.AdamOptimizer(learning_rate=1e-3)
         #trainer = tf.train.RMSPropOptimizer(learning_rate=0.00025, momentum=0.0, decay=0.99, epsilon=1e-6)
         #trainer = tf.train.MomentumOptimizer(learning_rate=1e-3, momentum=0.95)
-        trainer = tf.train.AdadeltaOptimizer(learning_rate=1e-4)
+        #trainer = tf.train.AdadeltaOptimizer(learning_rate=1e-4)
+        trainer = None
 
         #with tf.variable_scope("master"):
         master_worker = Worker(action_count,"master",trainer=None, game_name=game_name)

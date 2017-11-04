@@ -57,12 +57,14 @@ class QNetwork():
             self.w_v = tf.Variable(tf.random_normal([h_size//2, 1]))
 
             advantage = tf.matmul(stream_a, self.w_a)
-            value = tf.matmul(stream_v, self.w_v)
+            self.value = tf.matmul(stream_v, self.w_v)
 
         # salience = tf.gradients(advantage, img_in)
         with tf.variable_scope("predict"):
-            self.q_out = value + tf.subtract(advantage, tf.reduce_mean(advantage, axis=1, keep_dims=True))
-            self.pred = tf.argmax(self.q_out, axis=1)
+            #self.q_out = value + tf.subtract(advantage, tf.reduce_mean(advantage, axis=1, keep_dims=True))
+            self.policy = tf.nn.softmax(advantage)
+            self.policy = tf.clip_by_value(self.policy, 1e-10, 1.0)
+            self.pred = tf.argmax(self.policy, axis=1)
 
             self.target_q = tf.placeholder(tf.float32, [None])
             self.actions = tf.placeholder(tf.int32, [None])
@@ -74,11 +76,11 @@ class QNetwork():
             loss = tf.reduce_mean(td_error)
             #loss = tf.losses.huber_loss(self.target_q,Q)
 
-        self.update = tf.train.RMSPropOptimizer(learning_rate=learning_rate, momentum=0.95).minimize(loss)
+        self.update = tf.train.RMSPropOptimizer(learning_rate=learning_rate, momentum=0.0, decay=0.99).minimize(loss)
 
         with tf.name_scope("summary"):
             tf.summary.scalar("loss", loss)
-            tf.summary.scalar("mean_value", tf.reduce_mean(value))
+            tf.summary.scalar("mean_value", tf.reduce_mean(self.value))
             tf.summary.scalar("max_advantage", tf.reduce_max(advantage))
             tf.summary.scalar("min_advantage", tf.reduce_min(advantage))
             tf.summary.scalar("mean_target_q", tf.reduce_mean(self.target_q))
