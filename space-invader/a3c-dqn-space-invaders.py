@@ -43,7 +43,8 @@ def make_gym_env(name):
 def process_frame(f, last_f=None, height=84,width=84):
     if last_f is not None:
         f = np.amax(np.array([f, last_f]), axis=0)
-    f = scipy.misc.imresize(f, (height, width))
+
+    f = scipy.misc.imresize(f[34:194,:160,:], (height, width))
     f = np.dot(f[...,:3], [0.299, 0.587, 0.114])/255.0
 
     return np.reshape(f,[-1])
@@ -326,7 +327,7 @@ if __name__=="__main__":
     action_count = 6
     gamma = 0.99
     #num_workers = multiprocessing.cpu_count() - 2
-    num_workers = 32
+    num_workers = 16
     train_step = 5
     print("Running with {} workers".format(num_workers))
 
