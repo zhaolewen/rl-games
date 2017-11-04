@@ -252,7 +252,7 @@ class Worker():
                         ep_count += 1
                         print("Agent {} finished episode {} finished with total reward: {} in {} seconds, total step {}".format(self.name,ep_count, ep_score,
                                                                                                time.time() - t_ep_start,total_step))
-                        sendStatElastic({"score": ep_score,'agent_name':self.name, 'game_name': 'ac3-gpu-SpaceInvaders-v0', 'episode': ep_count,'frame_count':total_step})
+                        sendStatElastic({"score": ep_score,'agent_name':self.name, 'game_name': 'ac3-SpaceInvaders-v0', 'episode': ep_count,'frame_count':total_step})
                         break
 
     def work(self, gamma, sess, coord, max_ep_buffer_size=8, max_episode_count=5000):
@@ -310,7 +310,7 @@ class Worker():
                     if done:
                         ep_count += 1
                         print("Agent {} finished episode {} finished with total reward: {} in {} seconds, total step {}".format(self.name,ep_count, ep_score, time.time()-t_ep_start, total_step))
-                        sendStatElastic({"score": ep_score,'game_name': 'ac3-gpu-SpaceInvaders-v0','episode':ep_count,'rand_e_prob':100.0*e,'agent_name':self.name,'frame_count':total_step})
+                        sendStatElastic({"score": ep_score,'game_name': 'ac3-SpaceInvaders-v0','episode':ep_count,'rand_e_prob':100.0*e,'agent_name':self.name,'frame_count':total_step})
                         break
 
                 if len(episode_buffer) != 0:
