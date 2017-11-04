@@ -97,19 +97,19 @@ class ACNetwork():
         #conv4 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv4",inputs=conv3, num_outputs=h_size, kernel_size=[7, 7], stride=[1, 1], padding="VALID", biases_initializer=None)
 
         with tf.name_scope("conv"):
-            conv1 = layers.conv2d(img_in, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID")
+            conv1 = layers.conv2d(img_in, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
             pool1 = layers.max_pool2d(conv1, kernel_size=[2,2], stride=2)
-            conv2 = layers.conv2d(pool1, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID")
+            conv2 = layers.conv2d(pool1, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
             pool2 = layers.max_pool2d(conv2, kernel_size=[2,2], stride=2)
-            conv3 = layers.conv2d(pool2, num_outputs=64, kernel_size=[4,4], stride=1, padding="VALID")
+            conv3 = layers.conv2d(pool2, num_outputs=64, kernel_size=[4,4], stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
             pool3 = layers.max_pool2d(conv3, kernel_size=[2,2], stride=2)
-            conv4 = layers.conv2d(pool3, num_outputs=64, kernel_size=3, stride=1, padding="VALID")
+            conv4 = layers.conv2d(pool3, num_outputs=64, kernel_size=3, stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
             pool4 = layers.max_pool2d(conv4, kernel_size=[2,2], stride=2)
-            hidden = layers.fully_connected(layers.flatten(pool4), h_size)
+            hidden = layers.fully_connected(layers.flatten(pool4), h_size, weights_initializer=layers.xavier_initializer())
 
-            # conv1 = slim.conv2d(img_in, num_outputs=16, kernel_size=[8, 8], stride=[4, 4], padding="VALID",activation_fn=tf.nn.relu)
-            # conv2 = slim.conv2d(conv1, num_outputs=32, kernel_size=[4, 4], stride=[2, 2], padding="VALID",activation_fn=tf.nn.relu)
-            # hidden = slim.fully_connected(slim.flatten(conv2), h_size)
+            # conv1 = slim.conv2d(img_in, num_outputs=16, kernel_size=[8, 8], stride=[4, 4], padding="VALID", weights_initializer=layers.xavier_initializer())
+            # conv2 = slim.conv2d(conv1, num_outputs=32, kernel_size=[4, 4], stride=[2, 2], padding="VALID", weights_initializer=layers.xavier_initializer())
+            # hidden = slim.fully_connected(slim.flatten(conv2), h_size, weights_initializer=layers.xavier_initializer())
         #hidden = slim.flatten(conv4)
 
         with tf.variable_scope("va_split"):
