@@ -324,7 +324,7 @@ if __name__=="__main__":
     logdir = "./checkpoints/a3c-dqn"
 
     max_episode_len = 10000
-    action_count = 6
+    action_count = 4
     gamma = 0.99
     #num_workers = multiprocessing.cpu_count() - 2
     num_workers = 16
