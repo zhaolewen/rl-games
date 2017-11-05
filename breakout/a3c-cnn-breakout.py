@@ -140,7 +140,7 @@ class ACNetwork():
             entropy = -tf.reduce_sum(self.policy * tf.log(self.policy))
             policy_loss = - tf.reduce_sum(tf.log(resp_outputs) * self.target_adv)
 
-            loss = 0.25 * value_loss + policy_loss - entropy * 0.01
+            loss = 0.5 * value_loss + policy_loss - entropy * 0.01
 
             local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
             gradients = tf.gradients(loss, local_vars)
@@ -327,7 +327,7 @@ if __name__=="__main__":
     action_count = 4
     gamma = 0.99
     #num_workers = multiprocessing.cpu_count() - 2
-    num_workers = 16
+    num_workers = 32
     train_step = 5
     print("Running with {} workers".format(num_workers))
 
@@ -370,7 +370,7 @@ if __name__=="__main__":
             time.sleep(0.5)
             worker_threads.append(t)
 
-        master_worker.play(sess, coord)
+        #master_worker.play(sess, coord, render=True)
         print("Started all threads")
 
         coord.join(worker_threads)
