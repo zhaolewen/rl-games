@@ -143,7 +143,7 @@ class ACNetwork():
 
                 self.summary_op = tf.summary.merge([s_loss, s_val, s_max_adv, s_min_adv, s_tar_q])
 
-def get_exp_prob(step, max_step=1000000):
+def get_exp_prob(step, max_step=500000):
     min_p = np.random.choice([0.1,0.01,0.5],1,p=[0.4,0.3,0.3])[0]
     #min_p = 0.1
     if step > max_step:
@@ -266,11 +266,11 @@ class Worker():
                     begin_frames = frame_buffer.frames()
                     pred, val = sess.run([self.local_ac.policy, self.local_ac.value],feed_dict={self.local_ac.inputs:begin_frames})
                     val = val[0,0]
-                    #e = get_exp_prob(total_step)
-                    #if random.random() < e:
-                    #    act = np.random.choice(range(self.act_size))
-                    #else:
-                    act = np.random.choice(range(self.act_size), p=pred[0])
+                    e = get_exp_prob(total_step)
+                    if random.random() < e:
+                        act = np.random.choice(range(self.act_size))
+                    else:
+                        act = np.random.choice(range(self.act_size), p=pred[0])
                         #act = pred[0]
                     s, reward, done, obs = env.step(act)
                     ep_score += reward
@@ -344,7 +344,7 @@ if __name__=="__main__":
             time.sleep(0.5)
             worker_threads.append(t)
 
-        master_worker.play(sess, coord)
+        #master_worker.play(sess, coord)
         print("Started all threads")
 
         coord.join(worker_threads)
