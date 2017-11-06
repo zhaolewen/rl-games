@@ -106,7 +106,7 @@ class ACNetwork():
             #self.q_out = value + tf.subtract(advantage, tf.reduce_mean(advantage, axis=1, keep_dims=True))
             self.pred = tf.argmax(advantage, axis=1)
             self.policy = tf.nn.softmax(advantage)
-            self.policy = tf.clip_by_value(self.policy, 1e-10,1.0)
+            self.policy = tf.clip_by_value(self.policy, 1e-13,1.0)
 
         if scope!="master":
             self.actions = tf.placeholder(tf.int32, [None],name="actions")

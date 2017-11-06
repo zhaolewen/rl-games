@@ -122,7 +122,7 @@ class ACNetwork():
             #self.q_out = value + tf.subtract(advantage, tf.reduce_mean(advantage, axis=1, keep_dims=True))
             self.pred = tf.argmax(advantage, axis=1)
             self.policy = tf.nn.softmax(advantage)
-            self.policy = tf.clip_by_value(self.policy, 1e-10,1.0)
+            self.policy = tf.clip_by_value(self.policy, 1e-13,1.0)
 
 
         # master network up date by copying value
@@ -140,7 +140,7 @@ class ACNetwork():
             entropy = -tf.reduce_sum(self.policy * tf.log(self.policy))
             policy_loss = - tf.reduce_sum(tf.log(resp_outputs) * self.target_adv)
 
-            loss = 0.25 * value_loss + policy_loss - entropy * 0.01
+            loss = 0.5 * value_loss + policy_loss - entropy * 0.00001
 
             local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
             gradients = tf.gradients(loss, local_vars)
@@ -158,9 +158,12 @@ class ACNetwork():
                 s_max_adv = tf.summary.scalar("max_advantage", tf.reduce_max(advantage))
                 s_min_adv = tf.summary.scalar("min_advantage", tf.reduce_min(advantage))
                 s_tar_q = tf.summary.scalar("mean_target_q", tf.reduce_mean(self.target_v))
-                #s_pred_q = tf.summary.scalar("mean_pred_q", tf.reduce_mean(self.q_out))
+                s_v_l = tf.summary.scalar("value_loss", value_loss)
+                s_p_l = tf.summary.scalar("policy_loss", policy_loss)
+                s_en = tf.summary.scalar("entropy", entropy)
+                # s_pred_q = tf.summary.scalar("mean_pred_q", tf.reduce_mean(self.q_out))
 
-                self.summary_op = tf.summary.merge([s_loss, s_val, s_max_adv, s_min_adv, s_tar_q])
+                self.summary_op = tf.summary.merge([s_loss, s_val, s_max_adv, s_min_adv, s_tar_q, s_v_l, s_p_l, s_en])
 
 def get_exp_prob(step, max_step=1000000):
     min_p = np.random.choice([0.1,0.01,0.5],1,p=[0.4,0.3,0.3])[0]
@@ -234,8 +237,9 @@ class Worker():
 
                 ep_score = 0.0
                 t_ep_start = time.time()
-
+                ep_len = 0
                 while True:
+                    ep_len += 1
                     total_step += 1
                     if render:
                         env.render()
@@ -253,7 +257,7 @@ class Worker():
                         ep_count += 1
                         print("Agent {} finished episode {} finished with total reward: {} in {} seconds, total step {}".format(self.name,ep_count, ep_score,
                                                                                                time.time() - t_ep_start,total_step))
-                        sendStatElastic({"score": ep_score,'agent_name':self.name, 'game_name': 'ac3-SpaceInvaders-v0', 'episode': ep_count,'frame_count':total_step})
+                        sendStatElastic({"score": ep_score,'agent_name':self.name, 'game_name': 'ac3-SpaceInvaders-v0', 'episode': ep_count,'frame_count':total_step,'episode_length':ep_len})
                         break
 
     def work(self, gamma, sess, coord, max_ep_buffer_size=8, max_episode_count=5000):
@@ -278,9 +282,10 @@ class Worker():
                 t_ep_start = time.time()
 
                 e = get_exp_prob(total_step)
-
+                ep_len = 1
                 while True:
                     total_step += 1
+                    ep_len += 1
 
                     begin_frames = frame_buffer.frames()
                     pred, val = sess.run([self.local_ac.policy, self.local_ac.value],feed_dict={self.local_ac.inputs:begin_frames})
@@ -311,7 +316,7 @@ class Worker():
                     if done:
                         ep_count += 1
                         print("Agent {} finished episode {} finished with total reward: {} in {} seconds, total step {}".format(self.name,ep_count, ep_score, time.time()-t_ep_start, total_step))
-                        sendStatElastic({"score": ep_score,'game_name': 'ac3-SpaceInvaders-v0','episode':ep_count,'rand_e_prob':100.0*e,'agent_name':self.name,'frame_count':total_step})
+                        sendStatElastic({"score": ep_score,'game_name': 'ac3-SpaceInvaders-v0','episode':ep_count,'rand_e_prob':100.0*e,'agent_name':self.name,'frame_count':total_step,'episode_length':ep_len})
                         break
 
                 if len(episode_buffer) != 0:
