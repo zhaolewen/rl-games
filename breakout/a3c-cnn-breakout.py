@@ -141,7 +141,7 @@ class ACNetwork():
             entropy = -tf.reduce_sum(self.policy * tf.log(self.policy))
             policy_loss = - tf.reduce_sum(tf.log(resp_outputs) * self.target_adv)
 
-            loss = 0.5 * value_loss + policy_loss - entropy * 0.0001
+            loss = 0.5 * value_loss + policy_loss - entropy * 0.001
 
             local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
             gradients = tf.gradients(loss, local_vars)
