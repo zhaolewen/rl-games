@@ -256,7 +256,8 @@ class ACNetwork():
             self.decay_learn_rate = learning_rate.assign(learning_rate.value() - delta_learn_rate)
 
             #trainer = tf.train.RMSPropOptimizer(learning_rate=learning_rate, momentum=0.0, decay=0.99, epsilon=1e-6)
-            self.train_op = grad_applier.apply_gradients(zip(grads, master_vars), global_step=global_step)
+            self.train_op = grad_applier.apply_gradients(master_vars, grads)
+            self.incr_global_step = global_step.assign(global_step.value()+1)
 
             with tf.name_scope("summary"):
                 s_lr = tf.summary.scalar("learning_rate", learning_rate)
@@ -282,7 +283,7 @@ def get_exp_prob(step, max_step=500000):
 class Worker():
     def __init__(self, act_size , name, grad_applier, game_name,global_step=None,summary_writer=None):
         self.name = str(name)
-        self.trainer = trainer
+        #self.trainer = trainer
         self.act_size = act_size
 
         with tf.variable_scope(self.name):
@@ -323,7 +324,7 @@ class Worker():
             self.local_ac.target_adv:advantages,
         }
 
-        summ,_ ,step,_ = sess.run([self.local_ac.summary_op, self.local_ac.train_op,self.global_step, self.local_ac.decay_learn_rate], feed_dict=feed_dict)
+        summ,_ ,step,_ = sess.run([self.local_ac.summary_op, self.local_ac.train_op,self.local_ac.incr_global_step, self.local_ac.decay_learn_rate], feed_dict=feed_dict)
         if self.summary_writer is not None:
             self.summary_writer.add_summary(summ,step)
 
