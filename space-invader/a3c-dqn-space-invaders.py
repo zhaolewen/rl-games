@@ -375,7 +375,7 @@ if __name__=="__main__":
             time.sleep(0.5)
             worker_threads.append(t)
 
-        master_worker.play(sess, coord)
+        #master_worker.play(sess, coord)
         print("Started all threads")
 
         coord.join(worker_threads)
