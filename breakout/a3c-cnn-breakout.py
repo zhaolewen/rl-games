@@ -281,7 +281,7 @@ def get_exp_prob(step, max_step=500000):
     return 1.0 - (1.0 - min_p)/max_step*step
 
 class Worker():
-    def __init__(self, act_size , name, grad_applier=None, game_name,global_step=None,summary_writer=None):
+    def __init__(self, act_size , name, grad_applier=None, game_name=None,global_step=None,summary_writer=None):
         self.name = str(name)
         #self.trainer = trainer
         self.act_size = act_size
