@@ -88,7 +88,7 @@ def normalized_columns_initializer(std=1.0):
     return __initializer
 
 class ACNetwork():
-    def __init__(self, act_size, scope, trainer,frame_count=4,im_size=84, h_size=256, global_step=None):
+    def __init__(self, act_size, scope, trainer,init_learn_rate=1e-3, learn_rate_decay_step=1e9,frame_count=4,im_size=84, h_size=256, global_step=None):
         self.inputs = tf.placeholder(tf.float32, [None, im_size*im_size*frame_count], name="in_frames")
         img_in = tf.reshape(self.inputs, [-1, im_size, im_size, frame_count])
 
@@ -139,7 +139,7 @@ class ACNetwork():
             entropy = -tf.reduce_sum(self.policy * tf.log(self.policy+1e-13))
             policy_loss = - tf.reduce_sum(tf.log(resp_outputs+1e-13) * self.target_adv)
 
-            loss = 0.5 * value_loss + policy_loss - entropy * 0.001
+            loss = 0.5 * value_loss + policy_loss - entropy * 0.0007
 
             local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
             gradients = tf.gradients(loss, local_vars)
@@ -147,11 +147,16 @@ class ACNetwork():
             grads, grad_norms = tf.clip_by_global_norm(gradients, 5.0)
 
             master_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'master')
+            learning_rate = tf.Variable(init_learn_rate, trainable=False, dtype=tf.float32, name="learning_rate")
+            delta_learn_rate = init_learn_rate / learn_rate_decay_step
+            self.decay_learn_rate = learning_rate.assign(learning_rate.value() - delta_learn_rate)
+
             if trainer == None:
-                trainer = tf.train.RMSPropOptimizer(learning_rate=0.00025, momentum=0.0, decay=0.99, epsilon=1e-6)
+                trainer = tf.train.RMSPropOptimizer(learning_rate=learning_rate, momentum=0.0, decay=0.99, epsilon=1e-6)
             self.train_op = trainer.apply_gradients(zip(grads, master_vars), global_step=global_step)
 
             with tf.name_scope("summary"):
+                s_lr = tf.summary.scalar("learning_rate", learning_rate)
                 s_loss = tf.summary.scalar("loss", loss)
                 s_val = tf.summary.scalar("mean_value", tf.reduce_mean(self.value))
                 s_max_adv = tf.summary.scalar("max_advantage", tf.reduce_max(advantage))
@@ -162,7 +167,7 @@ class ACNetwork():
                 s_en = tf.summary.scalar("entropy", entropy)
                 # s_pred_q = tf.summary.scalar("mean_pred_q", tf.reduce_mean(self.q_out))
 
-                self.summary_op = tf.summary.merge([s_loss, s_val, s_max_adv, s_min_adv, s_tar_q, s_v_l, s_p_l, s_en])
+                self.summary_op = tf.summary.merge([s_lr, s_loss, s_val, s_max_adv, s_min_adv, s_tar_q, s_v_l, s_p_l, s_en])
 
 def get_exp_prob(step, max_step=1000000):
     min_p = np.random.choice([0.1,0.01,0.5],1,p=[0.4,0.3,0.3])[0]
@@ -332,7 +337,7 @@ if __name__=="__main__":
     gamma = 0.99
     #num_workers = multiprocessing.cpu_count() - 2
     num_workers = 32
-    train_step = 5
+    train_step = 8
     print("Running with {} workers".format(num_workers))
 
     graph = tf.Graph()

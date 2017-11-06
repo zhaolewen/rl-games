@@ -11,6 +11,108 @@ import requests
 import gym
 import tensorflow.contrib.layers as layers
 
+from tensorflow.python.training import training_ops
+from tensorflow.python.training import slot_creator
+
+class RMSPropApplier(object):
+    def __init__(self,
+               learning_rate,
+               decay=0.9,
+               momentum=0.0,
+               epsilon=1e-10,
+               clip_norm=40.0,
+               device="/cpu:0",
+               name="RMSPropApplier"):
+
+        self._name = name
+        self._learning_rate = learning_rate
+        self._decay = decay
+        self._momentum = momentum
+        self._epsilon = epsilon
+        self._clip_norm = clip_norm
+        self._device = device
+
+        # Tensors for learning rate and momentum.  Created in _prepare.
+        self._learning_rate_tensor = None
+        self._decay_tensor = None
+        self._momentum_tensor = None
+        self._epsilon_tensor = None
+
+        self._slots = {}
+
+    def _create_slots(self, var_list):
+        for v in var_list:
+              # 'val' is Variable's intial value tensor.
+              val = tf.constant(1.0, dtype=v.dtype, shape=v.get_shape())
+              self._get_or_make_slot(v, val, "rms", self._name)
+              self._zeros_slot(v, "momentum", self._name)
+
+    def _prepare(self):
+          self._learning_rate_tensor = tf.convert_to_tensor(self._learning_rate,
+                                                          name="learning_rate")
+          self._decay_tensor = tf.convert_to_tensor(self._decay, name="decay")
+          self._momentum_tensor = tf.convert_to_tensor(self._momentum,
+                                                     name="momentum")
+          self._epsilon_tensor = tf.convert_to_tensor(self._epsilon,
+                                                    name="epsilon")
+
+    def _slot_dict(self, slot_name):
+        named_slots = self._slots.get(slot_name, None)
+        if named_slots is None:
+              named_slots = {}
+              self._slots[slot_name] = named_slots
+        return named_slots
+
+    def _get_or_make_slot(self, var, val, slot_name, op_name):
+        named_slots = self._slot_dict(slot_name)
+        if var not in named_slots:
+            named_slots[var] = slot_creator.create_slot(var, val, op_name)
+        return named_slots[var]
+
+    def get_slot(self, var, name):
+        named_slots = self._slots.get(name, None)
+        if not named_slots:
+            return None
+        return named_slots.get(var, None)
+
+    def _zeros_slot(self, var, slot_name, op_name):
+        named_slots = self._slot_dict(slot_name)
+        if var not in named_slots:
+            named_slots[var] = slot_creator.create_zeros_slot(var, op_name)
+        return named_slots[var]
+
+    # TODO: in RMSProp native code, memcpy() (for CPU) and
+    # cudaMemcpyAsync() (for GPU) are used when updating values,
+    # and values might tend to be overwritten with results from other threads.
+    # (Need to check the learning performance with replacing it)
+    def _apply_dense(self, grad, var):
+        rms = self.get_slot(var, "rms")
+        mom = self.get_slot(var, "momentum")
+        return training_ops.apply_rms_prop(
+          var, rms, mom,
+          self._learning_rate_tensor,
+          self._decay_tensor,
+          self._momentum_tensor,
+          self._epsilon_tensor,
+          grad,
+          use_locking=False).op
+
+    # Apply accumulated gradients to var.
+    def apply_gradients(self, var_list, accum_grad_list, name=None):
+        update_ops = []
+
+        with tf.device(self._device):
+            with tf.control_dependencies(None):
+                self._create_slots(var_list)
+
+        with tf.name_scope(name, self._name, []) as name:
+            self._prepare()
+            for var, accum_grad in zip(var_list, accum_grad_list):
+                with tf.name_scope("update_" + var.op.name), tf.device(var.device):
+                    clipped_accum_grad = tf.clip_by_norm(accum_grad, self._clip_norm)
+                    update_ops.append(self._apply_dense(clipped_accum_grad, var))
+            return tf.group(*update_ops, name=name)
+
 def sendStatElastic(data, endpoint="http://35.187.182.237:9200/reinforce/games"):
     data['step_time'] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     try:
@@ -88,7 +190,7 @@ def normalized_columns_initializer(std=1.0):
     return __initializer
 
 class ACNetwork():
-    def __init__(self, act_size, scope, trainer, init_learn_rate=1e-3, learn_rate_decay_step=1e9,frame_count=4,im_size=84, h_size=256, global_step=None):
+    def __init__(self, act_size, scope, grad_applier, init_learn_rate=1e-3, learn_rate_decay_step=1e9,frame_count=4,im_size=84, h_size=256, global_step=None):
         self.inputs = tf.placeholder(tf.float32, [None, im_size*im_size*frame_count], name="in_frames")
         img_in = tf.reshape(self.inputs, [-1, im_size, im_size, frame_count])
 
@@ -141,7 +243,7 @@ class ACNetwork():
             entropy = -tf.reduce_sum(self.policy * tf.log(self.policy+1e-13))
             policy_loss = - tf.reduce_sum(tf.log(resp_outputs+1e-13) * self.target_adv)
 
-            loss = 0.5 * value_loss + policy_loss - entropy * 0.0001
+            loss = 0.5 * value_loss + policy_loss - entropy * 0.0003
 
             local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
             gradients = tf.gradients(loss, local_vars)
@@ -153,9 +255,8 @@ class ACNetwork():
             delta_learn_rate = init_learn_rate/learn_rate_decay_step
             self.decay_learn_rate = learning_rate.assign(learning_rate.value() - delta_learn_rate)
 
-            if trainer == None:
-                trainer = tf.train.RMSPropOptimizer(learning_rate=learning_rate, momentum=0.0, decay=0.99, epsilon=1e-6)
-            self.train_op = trainer.apply_gradients(zip(grads, master_vars), global_step=global_step)
+            #trainer = tf.train.RMSPropOptimizer(learning_rate=learning_rate, momentum=0.0, decay=0.99, epsilon=1e-6)
+            self.train_op = grad_applier.apply_gradients(zip(grads, master_vars), global_step=global_step)
 
             with tf.name_scope("summary"):
                 s_lr = tf.summary.scalar("learning_rate", learning_rate)
@@ -169,7 +270,7 @@ class ACNetwork():
                 s_en = tf.summary.scalar("entropy", entropy)
                 #s_pred_q = tf.summary.scalar("mean_pred_q", tf.reduce_mean(self.q_out))
 
-                self.summary_op = tf.summary.merge([s_loss, s_val, s_max_adv, s_min_adv, s_tar_q, s_v_l,s_p_l,s_en])
+                self.summary_op = tf.summary.merge([ s_lr,s_loss, s_val, s_max_adv, s_min_adv, s_tar_q, s_v_l,s_p_l,s_en])
 
 def get_exp_prob(step, max_step=500000):
     min_p = np.random.choice([0.1,0.01,0.5],1,p=[0.4,0.3,0.3])[0]
@@ -179,13 +280,13 @@ def get_exp_prob(step, max_step=500000):
     return 1.0 - (1.0 - min_p)/max_step*step
 
 class Worker():
-    def __init__(self, act_size , name, trainer, game_name,global_step=None,summary_writer=None):
+    def __init__(self, act_size , name, grad_applier, game_name,global_step=None,summary_writer=None):
         self.name = str(name)
         self.trainer = trainer
         self.act_size = act_size
 
         with tf.variable_scope(self.name):
-            self.local_ac = ACNetwork(act_size, self.name, trainer, global_step=global_step)
+            self.local_ac = ACNetwork(act_size, self.name, grad_applier, global_step=global_step)
         self.game_name = game_name
 
         # copy values from master graph to local
@@ -340,7 +441,7 @@ if __name__=="__main__":
     gamma = 0.99
     #num_workers = multiprocessing.cpu_count() - 2
     num_workers = 32
-    train_step = 5
+    train_step = 8
     print("Running with {} workers".format(num_workers))
 
     graph = tf.Graph()
@@ -350,10 +451,10 @@ if __name__=="__main__":
         #trainer = tf.train.RMSPropOptimizer(learning_rate=0.00025, momentum=0.0, decay=0.99, epsilon=1e-6)
         #trainer = tf.train.MomentumOptimizer(learning_rate=1e-3, momentum=0.95)
         #trainer = tf.train.AdadeltaOptimizer(learning_rate=1e-4)
-        trainer = None
+        grad_applier = RMSPropApplier(learning_rate=0.00025)
 
         #with tf.variable_scope("master"):
-        master_worker = Worker(action_count,"master",trainer=None, game_name=game_name)
+        master_worker = Worker(action_count,"master", game_name=game_name)
             #master_network = ACNetwork(act_size=action_count, scope="master", trainer=None)
 
         summ_writer = tf.summary.FileWriter(logdir)
@@ -361,7 +462,7 @@ if __name__=="__main__":
         for k in range(num_workers):
             w_name = "worker_"+str(k)
             #with tf.variable_scope(w_name):
-            w = Worker(action_count,w_name, trainer, game_name, summary_writer=summ_writer, global_step=global_step)
+            w = Worker(action_count,w_name, grad_applier, game_name, summary_writer=summ_writer, global_step=global_step)
             workers.append(w)
 
 
