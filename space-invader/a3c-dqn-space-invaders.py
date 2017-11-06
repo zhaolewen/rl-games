@@ -122,7 +122,6 @@ class ACNetwork():
             #self.q_out = value + tf.subtract(advantage, tf.reduce_mean(advantage, axis=1, keep_dims=True))
             self.pred = tf.argmax(advantage, axis=1)
             self.policy = tf.nn.softmax(advantage)
-            self.policy = tf.clip_by_value(self.policy, 1e-13,1.0)
 
 
         # master network up date by copying value
@@ -137,8 +136,8 @@ class ACNetwork():
             resp_outputs = tf.reduce_sum(self.policy * act_onehot, [1])
             value_loss = tf.reduce_sum(tf.square(self.target_v - self.value))
 
-            entropy = -tf.reduce_sum(self.policy * tf.log(self.policy))
-            policy_loss = - tf.reduce_sum(tf.log(resp_outputs) * self.target_adv)
+            entropy = -tf.reduce_sum(self.policy * tf.log(self.policy+1e-13))
+            policy_loss = - tf.reduce_sum(tf.log(resp_outputs+1e-13) * self.target_adv)
 
             loss = 0.5 * value_loss + policy_loss - entropy * 0.001
 
