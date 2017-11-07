@@ -321,7 +321,7 @@ class Worker():
                             v_pred = sess.run(self.local_ac.value,feed_dict={self.local_ac.inputs:next_frames})
                             self.train(episode_buffer, gamma,bootstrap_val=v_pred[0,0], sess=sess)
                             episode_buffer = []
-                            sess.run(self.update_local_ops)
+                            #sess.run(self.update_local_ops)
 
                     if done:
                         ep_count += 1
