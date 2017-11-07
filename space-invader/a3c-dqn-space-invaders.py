@@ -88,7 +88,7 @@ def normalized_columns_initializer(std=1.0):
     return __initializer
 
 class ACNetwork():
-    def __init__(self, act_size, scope, trainer,init_learn_rate=1e-3, learn_rate_decay_step=1e9,frame_count=4,im_size=84, h_size=256, global_step=None):
+    def __init__(self, act_size, scope, trainer,init_learn_rate=1e-3, learn_rate_decay_step=1e5,frame_count=4,im_size=84, h_size=256, global_step=None):
         self.inputs = tf.placeholder(tf.float32, [None, im_size*im_size*frame_count], name="in_frames")
         img_in = tf.reshape(self.inputs, [-1, im_size, im_size, frame_count])
 
@@ -134,12 +134,12 @@ class ACNetwork():
             self.target_adv = tf.placeholder(tf.float32, [None],name="target_advantage")
 
             resp_outputs = tf.reduce_sum(self.policy * act_onehot, [1])
-            value_loss = tf.reduce_sum(tf.square(self.target_v - self.value))
+            value_loss = tf.reduce_mean(tf.square(self.target_v - self.value))
 
-            entropy = -tf.reduce_sum(self.policy * tf.log(self.policy+1e-13))
-            policy_loss = - tf.reduce_sum(tf.log(resp_outputs+1e-13) * self.target_adv)
+            entropy = -tf.reduce_mean(tf.reduce_sum(self.policy * tf.log(self.policy+1e-13), axis=1))
+            policy_loss = - tf.reduce_mean(tf.log(resp_outputs+1e-13) * self.target_adv)
 
-            loss = 0.5 * value_loss + policy_loss - entropy * 0.0007
+            loss = 0.5 * value_loss + policy_loss - entropy * 0.001
 
             local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
             gradients = tf.gradients(loss, local_vars)
@@ -147,9 +147,7 @@ class ACNetwork():
             grads, grad_norms = tf.clip_by_global_norm(gradients, 5.0)
 
             master_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'master')
-            learning_rate = tf.Variable(init_learn_rate, trainable=False, dtype=tf.float32, name="learning_rate")
-            delta_learn_rate = init_learn_rate / learn_rate_decay_step
-            self.decay_learn_rate = learning_rate.assign(learning_rate.value() - delta_learn_rate)
+            learning_rate = tf.train.exponential_decay(init_learn_rate, global_step, learn_rate_decay_step, 0.97, staircase=True)
 
             if trainer == None:
                 trainer = tf.train.RMSPropOptimizer(learning_rate=learning_rate, momentum=0.0, decay=0.99, epsilon=1e-6)
@@ -209,9 +207,9 @@ class Worker():
         value_plus = np.asarray(values.tolist()+[bootstrap_val])
         #print(value_plus)
         #advantages = disc_rew + exp_coeff(value_plus[1:], gamma) - value_plus[:-1]
-        advantages = rewards + gamma * value_plus[1:] - value_plus[:-1]
-        advantages = discount_reward(advantages, gamma)
-        #advantages = disc_rew - values
+        #advantages = rewards + gamma * value_plus[1:] - value_plus[:-1]
+        #advantages = discount_reward(advantages, gamma)
+        advantages = disc_rew - values
 
         feed_dict = {
             self.local_ac.inputs:np.vstack(obs),
@@ -220,9 +218,9 @@ class Worker():
             self.local_ac.target_adv:advantages,
         }
 
-        summ,_ ,step,_ = sess.run([self.local_ac.summary_op, self.local_ac.train_op,self.global_step, self.local_ac.decay_learn_rate], feed_dict=feed_dict)
+        summ,_ ,step = sess.run([self.local_ac.summary_op, self.local_ac.train_op,self.global_step], feed_dict=feed_dict)
         if self.summary_writer is not None:
-            self.summary_writer.add_summary(summ,step)
+            self.summary_writer.add_summary(summ, step)
 
     def play(self, sess, coord, render=False):
         print("Starting worker {}".format(self.name))
