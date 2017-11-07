@@ -207,9 +207,9 @@ class Worker():
         value_plus = np.asarray(values.tolist()+[bootstrap_val])
         #print(value_plus)
         #advantages = disc_rew + exp_coeff(value_plus[1:], gamma) - value_plus[:-1]
-        #advantages = rewards + gamma * value_plus[1:] - value_plus[:-1]
-        #advantages = discount_reward(advantages, gamma)
-        advantages = disc_rew - values
+        advantages = rewards + gamma * value_plus[1:] - value_plus[:-1]
+        advantages = discount_reward(advantages, gamma)
+        #advantages = disc_rew - values
 
         feed_dict = {
             self.local_ac.inputs:np.vstack(obs),
