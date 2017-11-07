@@ -243,7 +243,7 @@ class ACNetwork():
             entropy = -tf.reduce_sum(self.policy * tf.log(self.policy+1e-13))
             policy_loss = - tf.reduce_sum(tf.log(resp_outputs+1e-13) * self.target_adv)
 
-            loss = 0.5 * value_loss + policy_loss - entropy * 0.0003
+            loss = 0.5 * value_loss + policy_loss - entropy * 0.0001
 
             local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
             gradients = tf.gradients(loss, local_vars)
@@ -313,8 +313,8 @@ class Worker():
         value_plus = np.asarray(values.tolist()+[bootstrap_val])
         #print(value_plus)
         #advantages = disc_rew + exp_coeff(value_plus[1:], gamma) - value_plus[:-1]
-        advantages = rewards + gamma * value_plus[1:] - value_plus[:-1]
-        advantages = discount_reward(advantages, gamma)
+        advantages = disc_rew + gamma * value_plus[1:] - value_plus[:-1]
+        #advantages = discount_reward(advantages, gamma)
         #advantages = disc_rew - values
 
         feed_dict = {
@@ -442,7 +442,7 @@ if __name__=="__main__":
     gamma = 0.99
     #num_workers = multiprocessing.cpu_count() - 2
     num_workers = 32
-    train_step = 20
+    train_step = 8
     print("Running with {} workers".format(num_workers))
 
     graph = tf.Graph()
