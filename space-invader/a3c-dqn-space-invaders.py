@@ -285,6 +285,8 @@ class Worker():
 
                 e = get_exp_prob(total_step)
                 ep_len = 1
+                lives = 3
+
                 while True:
                     total_step += 1
                     ep_len += 1
@@ -298,7 +300,7 @@ class Worker():
                     #else:
                     act = np.random.choice(range(self.act_size), p=pred[0])
                         #act = pred[0]
-                    s, reward, done, obs = env.step(act)
+                    s, reward, done, info = env.step(act)
                     ep_score += reward
 
                     s = process_frame(s)
@@ -308,12 +310,18 @@ class Worker():
                     next_frames = frame_buffer.frames()
 
                     episode_buffer.append([begin_frames, act, reward, next_frames, done, val])
-
-                    if len(episode_buffer) >= max_ep_buffer_size and not done:
-                        v_pred = sess.run(self.local_ac.value,feed_dict={self.local_ac.inputs:next_frames})
-                        self.train(episode_buffer, gamma,bootstrap_val=v_pred[0,0], sess=sess)
+                    if info['ale.lives'] < lives:
+                        self.train(episode_buffer, gamma, 0.0, sess)
+                        lives = info['ale.lives']
                         episode_buffer = []
                         sess.run(self.update_local_ops)
+                        frame_buffer = FrameBuffer(frame_size=84 * 84)
+                    else:
+                        if len(episode_buffer) >= max_ep_buffer_size and not done:
+                            v_pred = sess.run(self.local_ac.value,feed_dict={self.local_ac.inputs:next_frames})
+                            self.train(episode_buffer, gamma,bootstrap_val=v_pred[0,0], sess=sess)
+                            episode_buffer = []
+                            sess.run(self.update_local_ops)
 
                     if done:
                         ep_count += 1
@@ -334,7 +342,7 @@ if __name__=="__main__":
     action_count = 6
     gamma = 0.99
     #num_workers = multiprocessing.cpu_count() - 2
-    num_workers = 32
+    num_workers = 2
     train_step = 8
     print("Running with {} workers".format(num_workers))
 
