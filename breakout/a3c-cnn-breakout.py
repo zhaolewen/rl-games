@@ -190,7 +190,7 @@ def normalized_columns_initializer(std=1.0):
     return __initializer
 
 class ACNetwork():
-    def __init__(self, act_size, scope, grad_applier=None, init_learn_rate=1e-3, learn_rate_decay_step=1e9,frame_count=4,im_size=84, h_size=256, global_step=None):
+    def __init__(self, act_size, scope, grad_applier=None, init_learn_rate=1e-3, learn_rate_decay_step=1e8,frame_count=4,im_size=84, h_size=256, global_step=None):
         self.inputs = tf.placeholder(tf.float32, [None, im_size*im_size*frame_count], name="in_frames")
         img_in = tf.reshape(self.inputs, [-1, im_size, im_size, frame_count])
 
@@ -253,7 +253,7 @@ class ACNetwork():
             master_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'master')
             learning_rate = tf.Variable(init_learn_rate, trainable=False,dtype=tf.float32, name="learning_rate")
             delta_learn_rate = init_learn_rate/learn_rate_decay_step
-            self.decay_learn_rate = learning_rate.assign(learning_rate.value() - delta_learn_rate)
+            self.decay_learn_rate = tf.assign(learning_rate,learning_rate.value() - delta_learn_rate)
 
             #trainer = tf.train.RMSPropOptimizer(learning_rate=learning_rate, momentum=0.0, decay=0.99, epsilon=1e-6)
             self.train_op = grad_applier.apply_gradients(master_vars, grads)
@@ -442,12 +442,13 @@ if __name__=="__main__":
     gamma = 0.99
     #num_workers = multiprocessing.cpu_count() - 2
     num_workers = 32
-    train_step = 8
+    train_step = 20
     print("Running with {} workers".format(num_workers))
 
     graph = tf.Graph()
     with graph.as_default():
         global_step = tf.get_variable("global_step",(),tf.int64,initializer=tf.zeros_initializer(), trainable=False)
+        #learning_rate = tf.Variable(0.00025, trainable=False, dtype=tf.float32, name="learning_rate")
         #trainer = tf.train.AdamOptimizer(learning_rate=1e-3)
         #trainer = tf.train.RMSPropOptimizer(learning_rate=0.00025, momentum=0.0, decay=0.99, epsilon=1e-6)
         #trainer = tf.train.MomentumOptimizer(learning_rate=1e-3, momentum=0.95)

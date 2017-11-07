@@ -220,7 +220,7 @@ class Worker():
             self.local_ac.target_adv:advantages,
         }
 
-        summ,_ ,step = sess.run([self.local_ac.summary_op, self.local_ac.train_op,self.global_step], feed_dict=feed_dict)
+        summ,_ ,step,_ = sess.run([self.local_ac.summary_op, self.local_ac.train_op,self.global_step, self.local_ac.decay_learn_rate], feed_dict=feed_dict)
         if self.summary_writer is not None:
             self.summary_writer.add_summary(summ,step)
 
