@@ -314,7 +314,7 @@ class Worker():
                         self.train(episode_buffer, gamma, 0.0, sess)
                         lives = info['ale.lives']
                         episode_buffer = []
-                        sess.run(self.update_local_ops)
+                        #sess.run(self.update_local_ops)
                         frame_buffer = FrameBuffer(frame_size=84 * 84)
                     else:
                         if len(episode_buffer) >= max_ep_buffer_size and not done:
@@ -342,7 +342,7 @@ if __name__=="__main__":
     action_count = 6
     gamma = 0.99
     #num_workers = multiprocessing.cpu_count() - 2
-    num_workers = 2
+    num_workers = 32
     train_step = 8
     print("Running with {} workers".format(num_workers))
 
