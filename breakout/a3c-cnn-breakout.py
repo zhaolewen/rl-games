@@ -238,12 +238,12 @@ class ACNetwork():
             #self.entropy_scale = tf.placeholder(tf.float32,[],name="entrypy_scale")
 
             resp_outputs = tf.reduce_sum(self.policy * act_onehot, [1])
-            value_loss = tf.reduce_sum(tf.square(self.target_v - self.value))
+            value_loss = tf.reduce_mean(tf.square(self.target_v - self.value))
 
-            entropy = -tf.reduce_sum(self.policy * tf.log(self.policy+1e-13))
-            policy_loss = - tf.reduce_sum(tf.log(resp_outputs+1e-13) * self.target_adv)
+            entropy = -tf.reduce_mean(tf.reduce_sum(self.policy * tf.log(self.policy+1e-13), axis=1))
+            policy_loss = - tf.reduce_mean(tf.log(resp_outputs+1e-13) * self.target_adv)
 
-            loss = 0.5 * value_loss + policy_loss - entropy * 0.0001
+            loss = 0.5 * value_loss + policy_loss - entropy * 0.001
 
             local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
             gradients = tf.gradients(loss, local_vars)
