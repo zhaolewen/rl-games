@@ -305,23 +305,20 @@ class Worker():
 
                     s = process_frame(s)
                     reward = clip_reward_tan(reward)
+                    if info['ale.lives'] < lives:
+                        lives = info['ale.lives']
+                        reward = -1.0
                     frame_buffer.add(s)
 
                     next_frames = frame_buffer.frames()
 
                     episode_buffer.append([begin_frames, act, reward, next_frames, done, val])
-                    if info['ale.lives'] < lives:
-                        self.train(episode_buffer, gamma, 0.0, sess)
-                        lives = info['ale.lives']
+
+                    if len(episode_buffer) >= max_ep_buffer_size and not done:
+                        v_pred = sess.run(self.local_ac.value,feed_dict={self.local_ac.inputs:next_frames})
+                        self.train(episode_buffer, gamma,bootstrap_val=v_pred[0,0], sess=sess)
                         episode_buffer = []
                         #sess.run(self.update_local_ops)
-                        frame_buffer = FrameBuffer(frame_size=84 * 84)
-                    else:
-                        if len(episode_buffer) >= max_ep_buffer_size and not done:
-                            v_pred = sess.run(self.local_ac.value,feed_dict={self.local_ac.inputs:next_frames})
-                            self.train(episode_buffer, gamma,bootstrap_val=v_pred[0,0], sess=sess)
-                            episode_buffer = []
-                            #sess.run(self.update_local_ops)
 
                     if done:
                         ep_count += 1
