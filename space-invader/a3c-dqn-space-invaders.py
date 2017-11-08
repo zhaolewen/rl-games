@@ -88,7 +88,7 @@ def normalized_columns_initializer(std=1.0):
     return __initializer
 
 class ACNetwork():
-    def __init__(self, act_size, scope, trainer,init_learn_rate=1e-3, learn_rate_decay_step=1e5,frame_count=4,im_size=84, h_size=256, global_step=None):
+    def __init__(self, act_size, scope, trainer,init_learn_rate=5e-4, learn_rate_decay_step=1e5,frame_count=4,im_size=84, h_size=256, global_step=None):
         self.inputs = tf.placeholder(tf.float32, [None, im_size*im_size*frame_count], name="in_frames")
         img_in = tf.reshape(self.inputs, [-1, im_size, im_size, frame_count])
 
@@ -136,10 +136,10 @@ class ACNetwork():
             resp_outputs = tf.reduce_sum(self.policy * act_onehot, [1])
             value_loss = tf.reduce_mean(tf.square(self.target_v - self.value))
 
-            entropy = -tf.reduce_mean(tf.reduce_sum(self.policy * tf.log(self.policy+1e-13), axis=1))
-            policy_loss = - tf.reduce_mean(tf.log(resp_outputs+1e-13) * self.target_adv)
+            entropy = -tf.reduce_mean(tf.reduce_sum(self.policy * tf.log(self.policy+1e-15), axis=1))
+            policy_loss = - tf.reduce_mean(tf.log(resp_outputs+1e-15) * self.target_adv)
 
-            loss = 0.5 * value_loss + policy_loss - entropy * 0.005
+            loss = 0.5 * value_loss + policy_loss - entropy * 0.002
 
             local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
             gradients = tf.gradients(loss, local_vars)
@@ -318,7 +318,7 @@ class Worker():
                         v_pred = sess.run(self.local_ac.value,feed_dict={self.local_ac.inputs:next_frames})
                         self.train(episode_buffer, gamma,bootstrap_val=v_pred[0,0], sess=sess)
                         episode_buffer = []
-                        #sess.run(self.update_local_ops)
+                        sess.run(self.update_local_ops)
 
                     if done:
                         ep_count += 1
