@@ -21,20 +21,6 @@ def sendStatElastic(data, endpoint="http://35.187.182.237:9200/reinforce/games")
     finally:
         pass
 
-class FrameBuffer():
-    def __init__(self, buffer_size=4, frame_size=None):
-        self.buffer_size = buffer_size
-        self.frame_size = frame_size
-        self._frames = [[0] * frame_size] * buffer_size
-
-    def add(self, frame):
-        self._frames.append(frame)
-        if len(self._frames) > self.buffer_size:
-            self._frames.pop(0)
-
-    def frames(self):
-        return np.reshape(np.array(self._frames), [1, self.frame_size * self.buffer_size])
-
 def make_gym_env(name):
     env = gym.make(name)
     env.env.frameskip=3
@@ -94,9 +80,10 @@ def normalized_columns_initializer(std=1.0):
     return __initializer
 
 class ACNetwork():
-    def __init__(self, act_size, scope, trainer,init_learn_rate=5e-4, learn_rate_decay_step=1e5,frame_count=4,im_size=84, h_size=256, global_step=None):
-        self.inputs = tf.placeholder(tf.float32, [None, im_size*im_size*frame_count], name="in_frames")
-        img_in = tf.reshape(self.inputs, [-1, im_size, im_size, frame_count])
+    def __init__(self, act_size, scope, trainer,init_learn_rate=5e-4, learn_rate_decay_step=1e5,im_size=84, h_size=256, global_step=None):
+        self.inputs = tf.placeholder(tf.float32, [None, im_size*im_size], name="in_frames")
+        img_in = tf.reshape(self.inputs, [-1, im_size, im_size, 1])
+        self.trace_len = tf.placeholder(tf.int32, [], name="trace_len")
 
         #conv1 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv1",inputs=img_in, num_outputs=32, kernel_size=[8,8], stride=[4, 4], padding="VALID", biases_initializer=None)
         #conv2 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv2",inputs=conv1, num_outputs=64, kernel_size=[4, 4], stride=[2, 2], padding="VALID", biases_initializer=None)
@@ -104,24 +91,22 @@ class ACNetwork():
         #conv4 = slim.convolution2d(activation_fn=tf.nn.relu,scope="conv4",inputs=conv3, num_outputs=h_size, kernel_size=[7, 7], stride=[1, 1], padding="VALID", biases_initializer=None)
 
         with tf.name_scope("conv"):
-            # conv1 = layers.conv2d(img_in, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
-            # pool1 = layers.max_pool2d(conv1, kernel_size=[2,2], stride=2)
-            # conv2 = layers.conv2d(pool1, num_outputs=32, kernel_size=[5,5], stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
-            # pool2 = layers.max_pool2d(conv2, kernel_size=[2,2], stride=2)
-            # conv3 = layers.conv2d(pool2, num_outputs=64, kernel_size=[4,4], stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
-            # pool3 = layers.max_pool2d(conv3, kernel_size=[2,2], stride=2)
-            # conv4 = layers.conv2d(pool3, num_outputs=64, kernel_size=3, stride=1, padding="VALID", weights_initializer=layers.xavier_initializer())
-            # pool4 = layers.max_pool2d(conv4, kernel_size=[2,2], stride=2)
-            # hidden = layers.fully_connected(layers.flatten(pool4), h_size, weights_initializer=layers.xavier_initializer())
-
             conv1 = layers.conv2d(img_in, num_outputs=16, kernel_size=[8, 8], stride=[4, 4], activation_fn=tf.nn.elu)
             conv2 = layers.conv2d(conv1, num_outputs=32, kernel_size=[4, 4], stride=[2, 2], activation_fn=tf.nn.elu)
+            #conv3 = layers.conv2d(conv2, num_outputs=h_size, kernel_size=[3, 3], stride=[2, 2], activation_fn=tf.nn.elu)
             hidden = layers.fully_connected(layers.flatten(conv2), h_size, activation_fn=tf.nn.elu)
-        #hidden = slim.flatten(conv4)
+            hidden = tf.reshape(hidden,[-1,self.trace_len,h_size])
+
+        with tf.variable_scope("lstm"):
+            cell = tf.nn.rnn_cell.BasicLSTMCell(h_size)
+            self.init_state = cell.zero_state(1 , tf.float32)
+            rnn_out, self.rnn_state = tf.nn.dynamic_rnn(cell, hidden, [self.trace_len], self.init_state,tf.float32)
+
+            rnn_out = tf.reshape(rnn_out,[-1, h_size])
 
         with tf.variable_scope("va_split"):
-            advantage = slim.fully_connected(hidden, act_size, activation_fn=None, weights_initializer=normalized_columns_initializer(std=0.01))
-            self.value = slim.fully_connected(hidden, 1, activation_fn=None, weights_initializer=normalized_columns_initializer(std=1.0))
+            advantage = slim.fully_connected(rnn_out, act_size, activation_fn=None, weights_initializer=normalized_columns_initializer(std=0.01))
+            self.value = slim.fully_connected(rnn_out, 1, activation_fn=None, weights_initializer=normalized_columns_initializer(std=1.0))
 
         # salience = tf.gradients(advantage, img_in)
         with tf.variable_scope("predict"):
@@ -181,13 +166,14 @@ def get_exp_prob(step, max_step=1000000):
     return 1.0 - (1.0 - min_p)/max_step*step
 
 class Worker():
-    def __init__(self, act_size , name, trainer, game_name,global_step=None,summary_writer=None):
+    def __init__(self, act_size , name, trainer, game_name, h_size=256,global_step=None,summary_writer=None):
         self.name = str(name)
         self.trainer = trainer
         self.act_size = act_size
+        self.h_size = h_size
 
         with tf.variable_scope(self.name):
-            self.local_ac = ACNetwork(act_size, self.name, trainer, global_step=global_step)
+            self.local_ac = ACNetwork(act_size, self.name, trainer, h_size=h_size, global_step=global_step)
         self.game_name = game_name
 
         # copy values from master graph to local
@@ -195,7 +181,7 @@ class Worker():
         self.global_step = global_step
         self.summary_writer = summary_writer
 
-    def train(self, rollout,gamma, bootstrap_val, sess):
+    def train(self, rollout,gamma, bootstrap_val,rnn_state, sess):
         rollout = np.array(rollout)
 
         obs = rollout[:,0]
@@ -222,6 +208,8 @@ class Worker():
             self.local_ac.target_v:disc_rew,
             self.local_ac.actions:acts,
             self.local_ac.target_adv:advantages,
+            self.local_ac.trace_len:len(acts),
+            self.local_ac.init_state:rnn_state
         }
 
         summ,_ ,step = sess.run([self.local_ac.summary_op, self.local_ac.train_op,self.global_step], feed_dict=feed_dict)
@@ -237,11 +225,8 @@ class Worker():
 
             ep_count = 0
             while not coord.should_stop():
-                frame_buffer = FrameBuffer(frame_size=84 * 84)
-
                 s = env.reset()
                 s = process_frame(s)
-                frame_buffer.add(s)
 
                 ep_score = 0.0
                 t_ep_start = time.time()
@@ -251,7 +236,7 @@ class Worker():
                     total_step += 1
                     if render:
                         env.render()
-                    pred = sess.run(self.local_ac.policy,feed_dict={self.local_ac.inputs: frame_buffer.frames()})
+                    pred = sess.run(self.local_ac.policy,feed_dict={self.local_ac.inputs:[s]})
 
                     act = choose_action(pred[0])
                     #act = np.random.choice(range(self.act_size), p=pred[0])
@@ -260,7 +245,6 @@ class Worker():
                     ep_score += reward
 
                     s = process_frame(s)
-                    frame_buffer.add(s)
 
                     if done:
                         ep_count += 1
@@ -280,11 +264,8 @@ class Worker():
             while not coord.should_stop() and ep_count<max_episode_count:
                 sess.run(self.update_local_ops)
 
-                frame_buffer = FrameBuffer(frame_size=84 * 84)
-
                 s = env.reset()
                 s = process_frame(s)
-                frame_buffer.add(s)
 
                 episode_buffer = []
                 ep_score = 0.0
@@ -294,60 +275,64 @@ class Worker():
                 ep_len = 1
                 lives = 3
 
+                rnn_state = (np.zeros([1, self.h_size]),np.zeros([1, self.h_size]))
+                train_rnn_state = rnn_state
+
                 while True:
                     total_step += 1
                     ep_len += 1
 
-                    begin_frames = frame_buffer.frames()
-                    pred, val = sess.run([self.local_ac.policy, self.local_ac.value],feed_dict={self.local_ac.inputs:begin_frames})
+                    pred, val, rnn_state = sess.run([self.local_ac.policy, self.local_ac.value, self.local_ac.rnn_state],
+                                    feed_dict={self.local_ac.inputs:[s], self.local_ac.trace_len:1, self.local_ac.init_state:rnn_state})
                     val = val[0,0]
                     #e = get_exp_prob(total_step)
                     #if random.random() < e:
                     #    act = np.random.choice(range(self.act_size))
                     #else:
                     act = np.random.choice(range(self.act_size), p=pred[0])
-                        #act = pred[0]
-                    s, reward, done, info = env.step(act)
+
+                    s1, reward, done, info = env.step(act)
                     ep_score += reward
 
-                    s = process_frame(s)
+                    s1 = process_frame(s1)
                     reward = clip_reward_tan(reward)
                     if info['ale.lives'] < lives:
                         lives = info['ale.lives']
                         reward = -1.0
-                    frame_buffer.add(s)
 
-                    next_frames = frame_buffer.frames()
+                    episode_buffer.append([s, act, reward, s1, done, val])
 
-                    episode_buffer.append([begin_frames, act, reward, next_frames, done, val])
+                    s = s1
 
                     if len(episode_buffer) >= max_ep_buffer_size and not done:
-                        v_pred = sess.run(self.local_ac.value,feed_dict={self.local_ac.inputs:next_frames})
-                        self.train(episode_buffer, gamma,bootstrap_val=v_pred[0,0], sess=sess)
+                        v_pred = sess.run(self.local_ac.value,
+                                    feed_dict={self.local_ac.inputs:[s1], self.local_ac.trace_len:1, self.local_ac.init_state:rnn_state})
+                        self.train(episode_buffer, gamma,bootstrap_val=v_pred[0,0], rnn_state=train_rnn_state, sess=sess)
                         episode_buffer = []
                         sess.run(self.update_local_ops)
+                        train_rnn_state = rnn_state
 
                     if done:
                         ep_count += 1
                         print("Agent {} finished episode {} finished with total reward: {} in {} seconds, total step {}".format(self.name,ep_count, ep_score, time.time()-t_ep_start, total_step))
-                        sendStatElastic({"score": ep_score,'game_name': 'ac3-SpaceInvaders-v0','episode':ep_count,'rand_e_prob':100.0*e,'agent_name':self.name,'frame_count':total_step,'episode_length':ep_len})
+                        sendStatElastic({"score": ep_score,'game_name': 'ac3-lstm-SpaceInvaders-v0','episode':ep_count,'rand_e_prob':100.0*e,'agent_name':self.name,'frame_count':total_step,'episode_length':ep_len})
                         break
 
                 if len(episode_buffer) != 0:
-                    self.train(episode_buffer, gamma, 0.0, sess)
+                    self.train(episode_buffer, gamma, 0.0,train_rnn_state , sess)
 
 
 if __name__=="__main__":
     game_name = 'SpaceInvaders-v0'
 
-    logdir = "./checkpoints/a3c-dqn"
+    logdir = "./checkpoints/a3c-lstm"
 
     max_episode_len = 10000
     action_count = 6
     gamma = 0.99
     #num_workers = multiprocessing.cpu_count() - 2
-    num_workers = 32
-    train_step = 8
+    num_workers = 2
+    train_step = 5
     print("Running with {} workers".format(num_workers))
 
     graph = tf.Graph()
