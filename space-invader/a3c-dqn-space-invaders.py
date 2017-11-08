@@ -44,7 +44,7 @@ def process_frame(f, last_f=None, height=84,width=84):
     if last_f is not None:
         f = np.amax(np.array([f, last_f]), axis=0)
 
-    f = scipy.misc.imresize(f[34:194,:160,:], (height, width))
+    f = scipy.misc.imresize(f, (height, width))
     f = np.dot(f[...,:3], [0.299, 0.587, 0.114])/255.0
 
     return np.reshape(f,[-1])
