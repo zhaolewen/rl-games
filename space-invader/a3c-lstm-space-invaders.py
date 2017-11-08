@@ -331,7 +331,7 @@ if __name__=="__main__":
     action_count = 6
     gamma = 0.99
     #num_workers = multiprocessing.cpu_count() - 2
-    num_workers = 32
+    num_workers = 16
     train_step = 20
     print("Running with {} workers".format(num_workers))
 
