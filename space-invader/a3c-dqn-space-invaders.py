@@ -49,6 +49,12 @@ def process_frame(f, last_f=None, height=84,width=84):
 
     return np.reshape(f,[-1])
 
+def choose_action(prob):
+    dist = np.random.multinomial(1, prob)
+    act = int(np.nonzero(dist)[0])
+
+    return act
+
 def clip_reward(r):
     if r>0:
         return 1.0
@@ -247,7 +253,8 @@ class Worker():
                         env.render()
                     pred = sess.run(self.local_ac.policy,feed_dict={self.local_ac.inputs: frame_buffer.frames()})
 
-                    act = np.random.choice(range(self.act_size), p=pred[0])
+                    act = choose_action(pred[0])
+                    #act = np.random.choice(range(self.act_size), p=pred[0])
                     #act = pred[0]
                     s, reward, done, obs = env.step(act)
                     ep_score += reward
