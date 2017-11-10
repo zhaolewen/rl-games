@@ -60,7 +60,7 @@ parser.add_argument(
     help='maximum length of an episode (default: 10000)')
 parser.add_argument(
     '--env',
-    default='Pong-v0',
+    default='SpaceInvaders-v0',
     metavar='ENV',
     help='environment to train on (default: Pong-v0)')
 parser.add_argument(
@@ -81,7 +81,7 @@ parser.add_argument(
 parser.add_argument(
     '--save-score-level',
     type=int,
-    default=20,
+    default=1500,
     metavar='SSL',
     help='reward score test evaluation must get higher than to save model')
 parser.add_argument(
