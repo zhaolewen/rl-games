@@ -23,7 +23,7 @@ def sendStatElastic(data, endpoint="http://35.187.182.237:9200/reinforce/games")
 
 def make_gym_env(name):
     env = gym.make(name)
-    env.env.frameskip=3
+    env.env.frameskip=4
     return env
 
 def process_frame(f, last_f=None, height=84,width=84):
