@@ -5,8 +5,18 @@ from utils import setup_logger
 from model import A3Clstm
 from player_util import Agent
 from torch.autograd import Variable
-import time
+import time, requests
 import logging
+
+def sendStatElastic(data, endpoint="http://35.187.182.237:9200/reinforce/games"):
+    data['step_time'] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        r = requests.post(endpoint, json=data)
+    except:
+        print("Elasticsearch exception")
+        #log.warning(r.text)
+    finally:
+        pass
 
 
 def test(args, shared_model, env_conf):
@@ -50,6 +60,10 @@ def test(args, shared_model, env_conf):
                     time.strftime("%Hh %Mm %Ss",
                                   time.gmtime(time.time() - start_time)),
                     reward_sum, player.eps_len, reward_mean))
+
+            sendStatElastic(
+                {"score": reward_sum, 'agent_name': 'pytorch-test', 'game_name': 'ac3-pytorch-SpaceInvaders-v0', 'episode': num_tests,
+                 'frame_count': 0, 'episode_length': player.eps_len})
 
             if reward_sum > args.save_score_level:
                 player.model.load_state_dict(shared_model.state_dict())
