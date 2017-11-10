@@ -59,7 +59,7 @@ def train(rank, args, shared_model, optimizer, env_conf):
             ep_count += 1
 
             sendStatElastic(
-                {"score": ep_score, 'agent_name': player_name, 'game_name': 'ac3-pytorch-SpaceInvaders-v0',
+                {"score": ep_score, 'agent_name': player_name, 'game_name': 'a3c-pytorch-SpaceInvaders-v0',
                  'episode': ep_count,
                  'frame_count': frame_count, 'episode_length': player.eps_len})
 
@@ -67,6 +67,7 @@ def train(rank, args, shared_model, optimizer, env_conf):
             player.current_life = 0
             state = player.env.reset()
             player.state = torch.from_numpy(state).float()
+            ep_score = 0
 
 
         R = torch.zeros(1, 1)

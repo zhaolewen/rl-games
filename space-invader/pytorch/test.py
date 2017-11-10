@@ -62,7 +62,7 @@ def test(args, shared_model, env_conf):
                     reward_sum, player.eps_len, reward_mean))
 
             sendStatElastic(
-                {"score": reward_sum, 'agent_name': 'pytorch-test', 'game_name': 'ac3-pytorch-SpaceInvaders-v0', 'episode': num_tests,
+                {"score": reward_sum, 'agent_name': 'pytorch-test', 'game_name': 'a3c-pytorch-SpaceInvaders-v0', 'episode': num_tests,
                  'frame_count': 0, 'episode_length': player.eps_len})
 
             if reward_sum > args.save_score_level:
