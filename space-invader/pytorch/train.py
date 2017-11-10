@@ -6,6 +6,17 @@ from utils import ensure_shared_grads
 from model import A3Clstm
 from player_util import Agent
 from torch.autograd import Variable
+import requests, time
+
+def sendStatElastic(data, endpoint="http://35.187.182.237:9200/reinforce/games"):
+    data['step_time'] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        r = requests.post(endpoint, json=data)
+    except:
+        print("Elasticsearch exception")
+        #log.warning(r.text)
+    finally:
+        pass
 
 def train(rank, args, shared_model, optimizer, env_conf):
 
@@ -25,20 +36,36 @@ def train(rank, args, shared_model, optimizer, env_conf):
     player.state = torch.from_numpy(player.state).float()
     player.model.train()
 
+    player_name = "worker_"+str(rank)
+
+    ep_score = 0.0
+    ep_count = 0
+    frame_count = 0
+
     while True:
         player.model.load_state_dict(shared_model.state_dict())
         for step in range(args.num_steps):
             player.action_train()
+            frame_count += 1
+
+            ep_score += player.original_reward
+
             if args.count_lives:
                 player.check_state()
             if player.done:
                 break
 
         if player.done:
+            ep_count += 1
+
             player.eps_len = 0
             player.current_life = 0
             state = player.env.reset()
             player.state = torch.from_numpy(state).float()
+            sendStatElastic(
+                {"score": ep_score, 'agent_name': player_name, 'game_name': 'ac3-pytorch-SpaceInvaders-v0',
+                 'episode': ep_count,
+                 'frame_count': frame_count, 'episode_length': player.eps_len})
 
         R = torch.zeros(1, 1)
         if not player.done:

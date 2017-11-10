@@ -21,6 +21,7 @@ class Agent(object):
         self.done = True
         self.info = None
         self.reward = 0
+        self.original_reward = 0
 
     def action_train(self):
         if self.done:
@@ -37,6 +38,8 @@ class Agent(object):
         action = prob.multinomial().data
         log_prob = log_prob.gather(1, Variable(action))
         state, self.reward, self.done, self.info = self.env.step(action.numpy())
+        self.original_reward = self.reward
+
         self.state = torch.from_numpy(state).float()
         self.eps_len += 1
         self.done = self.done or self.eps_len >= self.args.max_episode_length
@@ -73,4 +76,5 @@ class Agent(object):
         self.log_probs = []
         self.rewards = []
         self.entropies = []
+
         return self
