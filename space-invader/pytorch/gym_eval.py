@@ -17,7 +17,7 @@ undo_logger_setup()
 parser = argparse.ArgumentParser(description='A3C_EVAL')
 parser.add_argument(
     '--env',
-    default='Pong-v0',
+    default='Space-Invaders-v0',
     metavar='ENV',
     help='environment to train on (default: Pong-v0)')
 parser.add_argument(

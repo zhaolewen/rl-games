@@ -6,9 +6,6 @@ from utils import ensure_shared_grads
 from model import A3Clstm
 from player_util import Agent
 from torch.autograd import Variable
-import requests, time
-
-
 
 def train(rank, args, shared_model, optimizer, env_conf):
 
